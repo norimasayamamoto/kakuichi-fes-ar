@@ -73,6 +73,54 @@ body { background:#000; overflow:hidden; width:100vw; height:100vh; font-family:
   0%,100%{ box-shadow:0 8px 24px rgba(255,20,147,0.5); }
   50%    { box-shadow:0 8px 40px rgba(255,107,0,0.8); }
 }
+/* ---- 操作ボタンバー ---- */
+#controls {
+  position:absolute;
+  bottom:90px; left:50%;
+  transform:translateX(-50%);
+  display:none;
+  gap:20px;
+  z-index:50;
+  align-items:center;
+}
+.ctrl-btn {
+  width:64px; height:64px;
+  border-radius:50%;
+  border:3px solid rgba(255,255,255,0.85);
+  background:rgba(0,0,0,0.45);
+  color:#fff;
+  font-size:28px;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  transition:transform 0.12s, background 0.12s;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+.ctrl-btn:active { transform:scale(0.85); background:rgba(255,20,147,0.55); }
+.ctrl-btn.shoot {
+  width:76px; height:76px; font-size:32px;
+  border:4px solid #fff;
+  background:rgba(255,255,255,0.18);
+}
+#flash {
+  position:absolute; inset:0;
+  background:#fff;
+  opacity:0; pointer-events:none;
+  z-index:60;
+  transition:opacity 0.06s;
+}
+#save-toast {
+  position:absolute;
+  top:70px; left:50%;
+  transform:translateX(-50%);
+  background:rgba(0,0,0,0.78);
+  color:#fff; padding:10px 24px;
+  border-radius:22px; font-size:15px; font-weight:700;
+  z-index:55; display:none;
+  white-space:nowrap;
+}
 </style>
 </head>
 <body>
@@ -82,8 +130,14 @@ body { background:#000; overflow:hidden; width:100vw; height:100vh; font-family:
   <canvas id="decoration-canvas"></canvas>
   <canvas id="canvas-overlay"></canvas>
   <div id="subtitle-bar"><div class="subtitle-text" id="subtitle"></div></div>
+  <div id="flash"></div>
+  <div id="save-toast">📸 保存しました！</div>
   <div id="status">📸 カメラを起動してください</div>
   <button id="start-btn" onclick="startAR()">🎪 ARスタート！</button>
+  <div id="controls">
+    <button class="ctrl-btn" onclick="switchCamera()" title="カメラ切替">🔄</button>
+    <button class="ctrl-btn shoot" onclick="takeScreenshot()" title="スクリーンショット">📸</button>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
@@ -316,29 +370,155 @@ faceStates.forEach((fs,i)=>{
 // =============================================
 const video    = document.getElementById('video');
 const statusEl = document.getElementById('status');
+const flashEl  = document.getElementById('flash');
+const toastEl  = document.getElementById('save-toast');
+
+let currentFacing = 'user';   // 'user' = フロント, 'environment' = バック
+let currentStream = null;
+let faceMeshInstance = null;
+let cameraInstance = null;
 
 async function startAR(){
   document.getElementById('start-btn').style.display='none';
   statusEl.textContent='📷 カメラ起動中...';
+  await startCamera(currentFacing);
+}
+
+async function startCamera(facing){
+  // 既存ストリームを停止
+  if(currentStream){ currentStream.getTracks().forEach(t=>t.stop()); }
+  if(cameraInstance){ try{ cameraInstance.stop(); }catch(e){} }
+
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}}});
+    currentFacing = facing;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode: facing, width:{ideal:1280}, height:{ideal:720} }
+    });
+    currentStream = stream;
     video.srcObject = stream;
     video.onloadedmetadata = () => {
       overlayCanvas.width  = video.videoWidth;
       overlayCanvas.height = video.videoHeight;
-      initFaceMesh();
+      if(!faceMeshInstance) initFaceMesh();
+      else restartCamera();
     };
-  }catch(e){ statusEl.textContent='⚠ カメラへのアクセスが必要です'; }
+    // ビデオのCSS mirror: フロントはミラー、バックはそのまま
+    video.style.transform = facing === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    document.getElementById('controls').style.display = 'flex';
+  }catch(e){
+    statusEl.textContent='⚠ カメラへのアクセスが必要です';
+    console.error(e);
+  }
+}
+
+async function switchCamera(){
+  const newFacing = currentFacing === 'user' ? 'environment' : 'user';
+  statusEl.textContent = '🔄 カメラ切替中...';
+  await startCamera(newFacing);
+}
+
+function restartCamera(){
+  if(cameraInstance){ try{ cameraInstance.stop(); }catch(e){} }
+  cameraInstance = new Camera(video, {
+    onFrame: async()=>{ if(faceMeshInstance) await faceMeshInstance.send({image:video}); },
+    width:1280, height:720
+  });
+  cameraInstance.start();
+  statusEl.textContent='🐰 口を開けてみて！';
 }
 
 function initFaceMesh(){
   statusEl.textContent='🔍 モデル読み込み中...';
-  const faceMesh = new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
-  faceMesh.setOptions({maxNumFaces:MAX_FACES, refineLandmarks:true, minDetectionConfidence:0.5, minTrackingConfidence:0.5});
-  faceMesh.onResults(onResults);
-  const cam = new Camera(video, {onFrame:async()=>{ await faceMesh.send({image:video}); }, width:1280, height:720});
-  cam.start();
+  faceMeshInstance = new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+  faceMeshInstance.setOptions({maxNumFaces:MAX_FACES, refineLandmarks:true, minDetectionConfidence:0.5, minTrackingConfidence:0.5});
+  faceMeshInstance.onResults(onResults);
+  cameraInstance = new Camera(video, {
+    onFrame: async()=>{ await faceMeshInstance.send({image:video}); },
+    width:1280, height:720
+  });
+  cameraInstance.start();
   statusEl.textContent='🐰 口を開けてみて！';
+}
+
+// ---- スクリーンショット ----
+function takeScreenshot(){
+  // 閃光エフェクト
+  flashEl.style.opacity='1';
+  setTimeout(()=>{ flashEl.style.opacity='0'; }, 80);
+
+  // 全レイヤーを合成: bg + video + deco + overlay
+  const W = window.innerWidth, H = window.innerHeight;
+  const shot = document.createElement('canvas');
+  shot.width = W; shot.height = H;
+  const sCtx = shot.getContext('2d');
+
+  // 1) 背景canvas
+  sCtx.drawImage(bgCanvas, 0, 0, W, H);
+
+  // 2) ビデオ（ミラー補正込み）
+  sCtx.save();
+  if(currentFacing === 'user'){
+    sCtx.translate(W, 0);
+    sCtx.scale(-1, 1);
+  }
+  sCtx.drawImage(video, 0, 0, W, H);
+  sCtx.restore();
+
+  // 3) デコcanvas（ガーランド・紙吹雪）
+  sCtx.drawImage(decoCanvas, 0, 0, W, H);
+
+  // 4) ARオーバーレイ（うさぎ）
+  sCtx.drawImage(overlayCanvas, 0, 0, W, H);
+
+  // 5) 字幕バーを画像として合成（subtitle-barをhtml2canvasなしで簡易再現）
+  const subH = 90;
+  const subGrad = sCtx.createLinearGradient(0, H-subH, 0, H);
+  subGrad.addColorStop(0,'rgba(0,0,0,0)');
+  subGrad.addColorStop(1,'rgba(0,0,0,0.55)');
+  sCtx.fillStyle = subGrad;
+  sCtx.fillRect(0, H-subH, W, subH);
+
+  // 字幕テキスト
+  const subColors=['#FF1493','#FF6B00','#FFD700','#00E5FF','#7B2FFF','#39FF14'];
+  const subStr='KAKUICHI 白組';
+  const fontSize = Math.min(52, W*0.06);
+  sCtx.font = `900 ${fontSize}px 'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif`;
+  sCtx.textBaseline='middle';
+  const totalW = subStr.split('').reduce((acc,ch)=>{ sCtx.font=`900 ${fontSize}px sans-serif`; return acc+sCtx.measureText(ch).width+fontSize*0.1; },0);
+  let tx = (W - totalW) / 2;
+  subStr.split('').forEach((ch,i)=>{
+    const c = subColors[i%subColors.length];
+    sCtx.fillStyle=c;
+    sCtx.shadowColor=c; sCtx.shadowBlur=12;
+    sCtx.fillText(ch, tx, H - subH/2);
+    tx += sCtx.measureText(ch).width + fontSize*0.1;
+  });
+  sCtx.shadowBlur=0;
+
+  // 6) ダウンロード / iPhoneは長押し保存を案内
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+  if(isIOS){
+    // iOSはa.download非対応 → 新タブで画像を開く（長押し→保存）
+    shot.toBlob(blob=>{
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      showToast('🖼 画像を長押しして保存してください');
+    }, 'image/png');
+  } else {
+    // Android / PC
+    const link = document.createElement('a');
+    link.download = 'kakuichi_fes_' + Date.now() + '.png';
+    link.href = shot.toDataURL('image/png');
+    link.click();
+    showToast('📸 保存しました！');
+  }
+}
+
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.style.display = 'block';
+  clearTimeout(toastEl._t);
+  toastEl._t = setTimeout(()=>{ toastEl.style.display='none'; }, 2500);
 }
 
 function onResults(results){
