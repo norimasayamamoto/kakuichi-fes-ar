@@ -580,7 +580,7 @@ function drawNose(ctx,lm,W,H){
 }
 
 // ---- 吹き出し（canvas描画・口の位置）----
-function drawSpeechBubble(ctx,mx,my,W,H,anim){
+function drawSpeechBubble(ctx,mx,my,W,H,anim,msgIdx){
   // サイズ
   var bw=Math.min(W*0.38,260);
   var bh=bw*0.52;
@@ -644,13 +644,14 @@ function drawSpeechBubble(ctx,mx,my,W,H,anim){
   ctx.textAlign='center';ctx.textBaseline='middle';
   var tx=bx+bw/2, ty=by+bh/2;
   // 影
-  ctx.fillStyle='rgba(0,0,0,0.12)';ctx.fillText('\u767d\u7d44\u512b\u52dd\uff01',tx+2,ty+2);
+  var _msg=(typeof BUBBLE_MSGS!=='undefined'?BUBBLE_MSGS[msgIdx||0]:null)||'白組優勝！';
+  ctx.fillStyle='rgba(0,0,0,0.12)';ctx.fillText(_msg,tx+2,ty+2);
   // グラデ文字
   var tg=ctx.createLinearGradient(tx-bw/2,ty-fs/2,tx+bw/2,ty+fs/2);
   tg.addColorStop(0,'#e74c3c');tg.addColorStop(0.5,'#e67e22');tg.addColorStop(1,'#e74c3c');
-  ctx.fillStyle=tg;ctx.fillText('\u767d\u7d44\u512b\u52dd\uff01',tx,ty);
+  ctx.fillStyle=tg;ctx.fillText(_msg,tx,ty);
   // 枠線
-  ctx.strokeStyle='rgba(180,0,0,0.2)';ctx.lineWidth=1;ctx.strokeText('\u767d\u7d44\u512b\u52dd\uff01',tx,ty);
+  ctx.strokeStyle='rgba(180,0,0,0.2)';ctx.lineWidth=1;ctx.strokeText(_msg,tx,ty);
 
   ctx.restore();
 }
@@ -661,8 +662,10 @@ function drawSpeechBubble(ctx,mx,my,W,H,anim){
 var MAX_F=4,fSt=[],bSt=[];
 for(var i=0;i<MAX_F;i++){
   fSt.push({open:false,cd:0});
-  bSt.push({vis:false,mx:0,my:0,af:0});
+  bSt.push({vis:false,mx:0,my:0,af:0,msg:0});
 }
+var MSG_MAIN=0, MSG_ALT=1;
+var BUBBLE_MSGS=["白組優勝！","盛り上がって行こー！"];
 
 function detectMouthOpen(lm,W,H){
   var pt=function(i){return{x:(1-lm[i].x)*W,y:lm[i].y*H};};
@@ -701,6 +704,7 @@ function onResults(res){
       if(!fs.open){
         fs.open=true;fs.cd=60;
         bs.vis=true;bs.mx=mouthCx;bs.my=mouthCy;bs.af=0;
+        bs.msg=(Math.random()<0.1)?1:0;
         // 速度アップ！
         speedMult=3.0;
       }
@@ -713,7 +717,7 @@ function onResults(res){
       bs.af++;
       // 口の位置に追従
       bs.mx=mouthCx; bs.my=mouthCy;
-      drawSpeechBubble(arX,bs.mx,bs.my,W,H,bs.af);
+      drawSpeechBubble(arX,bs.mx,bs.my,W,H,bs.af,bs.msg||0);
     }
   });
 
