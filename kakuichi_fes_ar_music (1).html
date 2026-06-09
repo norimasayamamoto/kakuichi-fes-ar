@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>KAKUICHI FES AR - MUSIC FES</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0618;overflow:hidden;width:100vw;height:100vh;font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;}
+#container{position:relative;width:100vw;height:100vh;}
+#bg-canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;}
+#video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);z-index:1;opacity:0;transition:opacity 0.5s;}
+#deco-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:3;}
+#ar-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;}
+#subtitle-bar{position:absolute;bottom:0;left:0;right:0;padding:14px 0 22px;background:linear-gradient(transparent,rgba(15,8,40,0.88));display:flex;justify-content:center;align-items:center;z-index:30;}
+.sub-char{display:inline-block;animation:cb 0.6s ease-in-out infinite;font-size:clamp(16px,4.2vw,40px);font-weight:900;letter-spacing:0.05em;}
+@keyframes cb{0%,100%{transform:translateY(0) rotate(-2deg);}50%{transform:translateY(-8px) rotate(3deg) scale(1.12);}}
+#start-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(135deg,#e040fb,#536dfe);color:#fff;border:4px solid #fff;padding:18px 44px;font-size:21px;font-weight:900;border-radius:50px;cursor:pointer;z-index:50;box-shadow:0 0 30px rgba(150,80,255,0.8);animation:bp 1s ease-in-out infinite;}
+@keyframes bp{0%,100%{transform:translate(-50%,-50%) scale(1);}50%{transform:translate(-50%,-50%) scale(1.07);}}
+#controls{position:absolute;bottom:82px;left:50%;transform:translateX(-50%);display:none;gap:14px;z-index:50;align-items:center;}
+.ctrl-btn{width:60px;height:60px;border-radius:50%;border:3px solid #e040fb;background:rgba(20,10,45,0.75);color:#fff;font-size:13px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform 0.1s,background 0.15s;-webkit-tap-highlight-color:transparent;user-select:none;flex-direction:column;line-height:1.2;box-shadow:0 0 12px rgba(224,64,251,0.5);}
+.ctrl-btn:active{transform:scale(0.82);}
+.ctrl-btn.shoot{width:72px;height:72px;font-size:28px;border-width:4px;border-color:#00e5ff;box-shadow:0 0 14px rgba(0,229,255,0.6);}
+.ctrl-btn.audio{border-color:#ffea00;box-shadow:0 0 12px rgba(255,234,0,0.5);font-size:22px;}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:60;transition:opacity 0.06s;}
+#toast{position:absolute;top:55px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:9px 22px;border-radius:20px;font-size:14px;font-weight:700;z-index:55;display:none;white-space:nowrap;}
+</style>
+</head>
+<body>
+<div id="container">
+  <canvas id="bg-canvas"></canvas>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="deco-canvas"></canvas>
+  <canvas id="ar-canvas"></canvas>
+  <div id="subtitle-bar"><div id="subtitle"></div></div>
+  <div id="flash"></div>
+  <div id="toast"></div>
+  <button id="start-btn" onclick="startAR()">🎸 FESスタート！</button>
+  <div id="controls">
+    <button class="ctrl-btn audio" id="audio-btn" onclick="toggleAudio()">🔊</button>
+    <button class="ctrl-btn" id="cam-btn" onclick="switchCamera()">IN</button>
+    <button class="ctrl-btn shoot" onclick="takeScreenshot()">&#x1F4F8;</button>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script>
+// =============================================
+//  MUSIC FES BEAT - Web Audio API (EDM style)
+// =============================================
+var audioCtx=null;
+var audioStarted=false;
+var masterGain=null;
+var audioMuted=false;
+var tempoMult=1.0;
+
+function initAudio(){
+  if(audioStarted) return;
+  audioStarted=true;
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    masterGain=audioCtx.createGain();
+    masterGain.gain.value=0.0;
+    masterGain.connect(audioCtx.destination);
+    masterGain.gain.linearRampToValueAtTime(0.65,audioCtx.currentTime+1.5);
+    startBeat();
+    updateAudioBtn();
+  }catch(e){console.warn('AudioContext error:',e);}
+}
+
+function setAudioTempo(mult){tempoMult=mult;}
+
+function updateAudioBtn(){
+  var btn=document.getElementById('audio-btn');
+  if(!btn) return;
+  if(!audioStarted||audioMuted) btn.innerHTML='&#x1F507;';
+  else btn.innerHTML='&#x1F50A;';
+}
+
+function toggleAudio(){
+  if(!audioStarted){
+    initAudio();
+    audioMuted=false;
+  } else {
+    audioMuted=!audioMuted;
+    if(masterGain){
+      var t=audioCtx.currentTime;
+      if(audioMuted) masterGain.gain.linearRampToValueAtTime(0,t+0.3);
+      else masterGain.gain.linearRampToValueAtTime(0.65,t+0.3);
+    }
+  }
+  updateAudioBtn();
+}
+
+// --- 音色生成ヘルパー ---
+function makeOsc(type,freq,start,dur,vol,dest){
+  var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.type=type;o.frequency.value=freq;
+  g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(vol,start+0.005);
+  g.gain.exponentialRampToValueAtTime(0.001,start+dur);
+  o.connect(g);g.connect(dest||masterGain);
+  o.start(start);o.stop(start+dur+0.01);
+}
+function makeKick(start,vol){
+  var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.type='sine';o.frequency.setValueAtTime(150,start);
+  o.frequency.exponentialRampToValueAtTime(40,start+0.12);
+  g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(vol,start+0.003);
+  g.gain.exponentialRampToValueAtTime(0.001,start+0.28);
+  o.connect(g);g.connect(masterGain);o.start(start);o.stop(start+0.3);
+}
+function makeNoise(start,dur,vol,freq,q,type){
+  var bufSize=Math.floor(audioCtx.sampleRate*dur);
+  var buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  var data=buf.getChannelData(0);
+  for(var i=0;i<bufSize;i++) data[i]=(Math.random()*2-1);
+  var src=audioCtx.createBufferSource();
+  src.buffer=buf;
+  var flt=audioCtx.createBiquadFilter();
+  flt.type=type||'bandpass';flt.frequency.value=freq||3000;flt.Q.value=q||1.5;
+  var g=audioCtx.createGain();
+  g.gain.setValueAtTime(vol,start);g.gain.exponentialRampToValueAtTime(0.001,start+dur);
+  src.connect(flt);flt.connect(g);g.connect(masterGain);
+  src.start(start);src.stop(start+dur+0.01);
+}
+function makeHat(start,vol,open){
+  makeNoise(start,open?0.18:0.05,vol,8500,1.2,'highpass');
+}
+function makeClap(start,vol){
+  makeNoise(start,0.02,vol*0.7,1800,1.2);
+  makeNoise(start+0.012,0.02,vol*0.8,2000,1.2);
+  makeNoise(start+0.025,0.14,vol,2200,1.0);
+}
+function makeBass(freq,start,dur,vol){
+  var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  var flt=audioCtx.createBiquadFilter();
+  flt.type='lowpass';flt.frequency.setValueAtTime(900,start);
+  flt.frequency.exponentialRampToValueAtTime(220,start+dur);
+  o.type='sawtooth';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(vol,start+0.008);
+  g.gain.exponentialRampToValueAtTime(0.001,start+dur);
+  o.connect(flt);flt.connect(g);g.connect(masterGain);
+  o.start(start);o.stop(start+dur+0.01);
+}
+function makeLead(freq,start,dur,vol){
+  var o=audioCtx.createOscillator(),o2=audioCtx.createOscillator();
+  var g=audioCtx.createGain();
+  o.type='square';o.frequency.value=freq;
+  o2.type='sawtooth';o2.frequency.value=freq*1.005;
+  var flt=audioCtx.createBiquadFilter();
+  flt.type='lowpass';flt.frequency.value=3500;
+  g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(vol,start+0.02);
+  g.gain.setValueAtTime(vol*0.7,start+dur-0.05);g.gain.linearRampToValueAtTime(0,start+dur);
+  o.connect(flt);o2.connect(flt);flt.connect(g);g.connect(masterGain);
+  o.start(start);o.stop(start+dur+0.01);
+  o2.start(start);o2.stop(start+dur+0.01);
+}
+
+// ---- シーケンス（128BPM 4つ打ち / Am系）----
+var seqTimer=null;
+var BPM_BASE=128;
+// 16分割で1小節：A2=110, ベースライン
+var BASS_PAT=[110,0,110,0, 110,0,131,0, 110,0,110,0, 98,0,131,0];
+var LEAD_SCALE=[440,523,587,659,784,880]; // A C D E G A
+var LEAD_MELODY=[
+  {s:0,f:0,d:2},{s:2,f:2,d:2},{s:4,f:3,d:3},{s:8,f:4,d:2},{s:10,f:3,d:2},{s:12,f:2,d:4},
+  {s:16,f:0,d:2},{s:18,f:2,d:2},{s:20,f:3,d:3},{s:24,f:5,d:4},{s:28,f:4,d:2},{s:30,f:3,d:2}
+];
+var PHRASE_LEN=32;
+var phraseStep=0;
+
+function scheduleBar(barStart,bpm){
+  var step=(60/bpm)*0.25; // 16th note
+  for(var i=0;i<16;i++){
+    var t=barStart+i*step;
+    if(i%4===0) makeKick(t,0.85);              // 4つ打ち
+    if(i%4===2) makeHat(t,0.28,true);          // オープンハット（裏拍）
+    else if(i%2===0) makeHat(t,0.15,false);
+    if(i===4||i===12) makeClap(t,0.45);        // 2,4拍クラップ
+    var bf=BASS_PAT[i];
+    if(bf) makeBass(bf,t,step*1.8,0.4);
+  }
+  var localBar=Math.floor(phraseStep/16)%2;
+  LEAD_MELODY.forEach(function(n){
+    if(Math.floor(n.s/16)===localBar){
+      var t2=barStart+(n.s%16)*step;
+      makeLead(LEAD_SCALE[n.f],t2,n.d*step*0.9,0.18);
+    }
+  });
+  phraseStep=(phraseStep+16)%PHRASE_LEN;
+}
+
+function startBeat(){
+  var nextBar=audioCtx.currentTime+0.1;
+  function tick(){
+    var bpm=BPM_BASE*Math.min(tempoMult*0.8+0.2,1.7);
+    var barLen=(60/bpm)*0.25*16;
+    while(nextBar<audioCtx.currentTime+barLen*2){
+      scheduleBar(nextBar,bpm);
+      nextBar+=barLen;
+    }
+    seqTimer=setTimeout(tick,100);
+  }
+  tick();
+}
+
+// ---- Subtitle 「カクイチFES 盛り上がっていこう！」 ----
+var RAINBOW=['#ff1744','#ff9100','#ffea00','#00e676','#00b0ff','#536dfe','#e040fb'];
+(function(){
+  var str='\u30ab\u30af\u30a4\u30c1FES \u76db\u308a\u4e0a\u304c\u3063\u3066\u3044\u3053\u3046\uff01';
+  var h='';
+  str.split('').forEach(function(ch,i){
+    var c=RAINBOW[i%RAINBOW.length];
+    h+='<span class="sub-char" style="color:'+c+';text-shadow:0 0 8px '+c+',0 0 16px '+c+'66;animation-delay:'+(i*0.07).toFixed(2)+'s">'+ch+'</span>';
+  });
+  document.getElementById('subtitle').innerHTML=h;
+})();
+
+// ---- Canvas ----
+var bgC=document.getElementById('bg-canvas'),bgX=bgC.getContext('2d');
+var dcC=document.getElementById('deco-canvas'),dcX=dcC.getContext('2d');
+var arC=document.getElementById('ar-canvas'),arX=arC.getContext('2d');
+function rsz(){[bgC,dcC,arC].forEach(function(c){c.width=window.innerWidth;c.height=window.innerHeight;});}
+rsz();window.addEventListener('resize',rsz);
+
+// ---- Global speed multiplier (mouth-open boost) ----
+var speedMult=1.0;
+
+// =============================================
+//  MUSIC FES VISUALS
+// =============================================
+
+// ---- 観客（シルエット・腕上げ・ペンライト）----
+var crowd=[];
+var NUM_C=26;
+for(var i=0;i<NUM_C;i++){
+  crowd.push({
+    x:Math.random(),
+    y:0.86+Math.random()*0.12,        // 画面下部
+    ph:Math.random()*Math.PI*2,
+    spd:0.06+Math.random()*0.05,
+    sc:0.035+Math.random()*0.03,
+    col:RAINBOW[Math.floor(Math.random()*RAINBOW.length)],
+    pen:Math.random()>0.25            // ペンライト持ち
+  });
+}
+
+function drawCrowd(ctx,c,W,H){
+  var cx=c.x*W, baseY=c.y*H, r=c.sc*Math.min(W,H);
+  var jump=Math.abs(Math.sin(c.ph))*r*0.9;     // ジャンプ
+  var cy=baseY-jump;
+  var armSwing=Math.sin(c.ph*1.5)*0.5;
+  ctx.save();
+  ctx.translate(cx,cy);
+  // 体（シルエット）
+  ctx.fillStyle='rgba(8,4,20,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(0,0,r*0.9,r*1.6,0,0,Math.PI*2);ctx.fill();   // 胴
+  ctx.beginPath();
+  ctx.arc(0,-r*2.0,r*0.75,0,Math.PI*2);ctx.fill();         // 頭
+  // 両腕（高く上げる）
+  ctx.strokeStyle='rgba(8,4,20,0.92)';
+  ctx.lineWidth=r*0.42;ctx.lineCap='round';
+  var aL=-Math.PI*0.72+armSwing*0.4;
+  var aR=-Math.PI*0.28-armSwing*0.4;
+  var hLx=Math.cos(aL)*r*2.4, hLy=-r*1.2+Math.sin(aL)*r*2.4;
+  var hRx=Math.cos(aR)*r*2.4, hRy=-r*1.2+Math.sin(aR)*r*2.4;
+  ctx.beginPath();ctx.moveTo(-r*0.5,-r*1.0);ctx.lineTo(hLx,hLy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(r*0.5,-r*1.0);ctx.lineTo(hRx,hRy);ctx.stroke();
+  // ペンライト
+  if(c.pen){
+    ctx.save();
+    ctx.translate(hRx,hRy);
+    ctx.rotate(aR+Math.PI/2);
+    var pl=r*1.3;
+    var g=ctx.createLinearGradient(0,0,0,-pl);
+    g.addColorStop(0,c.col);g.addColorStop(1,c.col+'00');
+    ctx.shadowColor=c.col;ctx.shadowBlur=14;
+    ctx.fillStyle=g;
+    ctx.fillRect(-r*0.16,-pl,r*0.32,pl);
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ---- スポットライト（スイング・ビーム）----
+var spots=[];
+for(var i=0;i<5;i++){
+  spots.push({
+    x:(i+0.5)/5,
+    ph:Math.random()*Math.PI*2,
+    spd:0.012+Math.random()*0.012,
+    col:RAINBOW[i%RAINBOW.length],
+    wid:0.10+Math.random()*0.07
+  });
+}
+function drawSpot(ctx,s,W,H){
+  var sx=s.x*W, sy=-10;
+  var sw=Math.sin(s.ph)*W*0.4;
+  var tx=sx+sw, ty=H*0.95;
+  var bw=W*s.wid;
+  var g=ctx.createLinearGradient(sx,sy,tx,ty);
+  g.addColorStop(0,s.col+'55');
+  g.addColorStop(1,s.col+'00');
+  ctx.beginPath();
+  ctx.moveTo(sx-6,sy);
+  ctx.lineTo(sx+6,sy);
+  ctx.lineTo(tx+bw/2,ty);
+  ctx.lineTo(tx-bw/2,ty);
+  ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();
+  // 光源
+  ctx.beginPath();ctx.arc(sx,8,7,0,Math.PI*2);
+  ctx.fillStyle='#fff';ctx.shadowColor=s.col;ctx.shadowBlur=18;ctx.fill();ctx.shadowBlur=0;
+}
+
+// ---- レーザー ----
+var lasers=[];
+for(var i=0;i<4;i++){
+  lasers.push({ph:Math.random()*Math.PI*2,spd:0.04+Math.random()*0.03,col:RAINBOW[(i*2+1)%RAINBOW.length],ox:0.2+i*0.2});
+}
+function drawLaser(ctx,l,W,H){
+  var x0=l.ox*W, y0=0;
+  var ang=Math.PI*0.5+Math.sin(l.ph)*0.6;
+  var len=Math.max(W,H)*1.4;
+  var x1=x0+Math.cos(ang)*len, y1=y0+Math.sin(ang)*len;
+  ctx.save();
+  ctx.globalAlpha=0.5+Math.sin(l.ph*3)*0.25;
+  ctx.strokeStyle=l.col;
+  ctx.shadowColor=l.col;ctx.shadowBlur=10;
+  ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
+  ctx.restore();
+}
+
+// ---- 紙吹雪（コンフェッティ）----
+var confetti=[];
+for(var i=0;i<55;i++) confetti.push({
+  x:Math.random(),y:Math.random(),
+  vx:(Math.random()-.5)*.0012,vy:.0008+Math.random()*.0016,
+  rot:Math.random()*360,rv:(Math.random()-.5)*6,
+  w:Math.random()*8+4,h:Math.random()*5+3,
+  col:RAINBOW[Math.floor(Math.random()*RAINBOW.length)],
+  al:.5+Math.random()*.5
+});
+function drawConfetti(ctx,p,W,H){
+  ctx.save();
+  ctx.translate(p.x*W,p.y*H);
+  ctx.rotate(p.rot*Math.PI/180);
+  ctx.scale(1,Math.abs(Math.sin(p.rot*0.05))); // ひらひら
+  ctx.globalAlpha=p.al;
+  ctx.fillStyle=p.col;
+  ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+  ctx.restore();
+}
+
+// ---- 花火 ----
+var fws=[],fwT=0;
+function spawnFw(W,H){
+  var cx=(.15+Math.random()*.7)*W,cy=(.04+Math.random()*.3)*H;
+  var col=RAINBOW[Math.floor(Math.random()*RAINBOW.length)];
+  for(var i=0;i<30;i++){var a=Math.random()*Math.PI*2,sp=Math.random()*4+1.5;fws.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,col:col});}
+}
+
+// ---- スピーカースタック（左右）----
+function drawSpeaker(ctx,x,y,sz,frame){
+  var pump=1+Math.abs(Math.sin(frame*0.25))*0.05*speedMult;
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.fillStyle='rgba(10,6,24,0.9)';
+  ctx.strokeStyle='rgba(120,100,200,0.5)';
+  ctx.lineWidth=2;
+  for(var i=0;i<2;i++){
+    var by=-i*sz*1.15;
+    ctx.fillRect(-sz/2,by-sz,sz,sz);
+    ctx.strokeRect(-sz/2,by-sz,sz,sz);
+    // ウーファー（鼓動）
+    ctx.save();
+    ctx.translate(0,by-sz/2);
+    ctx.scale(pump,pump);
+    ctx.beginPath();ctx.arc(0,0,sz*0.32,0,Math.PI*2);
+    ctx.fillStyle='#1a1240';ctx.fill();
+    ctx.strokeStyle='rgba(160,140,255,0.7)';ctx.stroke();
+    ctx.beginPath();ctx.arc(0,0,sz*0.12,0,Math.PI*2);
+    ctx.fillStyle='rgba(180,160,255,0.8)';ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+var gf=0;
+function animate(){
+  gf++;
+  var W=window.innerWidth,H=window.innerHeight;
+  var sm=speedMult;
+
+  // ---- BG（カメラ未起動時の夜空）----
+  bgX.clearRect(0,0,W,H);
+  var bg=bgX.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#0a0618');bg.addColorStop(0.5,'#160b35');bg.addColorStop(1,'#2a0f4e');
+  bgX.fillStyle=bg;bgX.fillRect(0,0,W,H);
+  // 星
+  for(var i=0;i<40;i++){
+    var sx=(Math.sin(i*127.1)*0.5+0.5)*W;
+    var sy=(Math.sin(i*311.7)*0.5+0.5)*H*0.6;
+    var tw=0.3+Math.abs(Math.sin(gf*0.03+i))*0.7;
+    bgX.globalAlpha=tw;
+    bgX.fillStyle='#fff';
+    bgX.fillRect(sx,sy,2,2);
+  }
+  bgX.globalAlpha=1;
+
+  // ---- DECO canvas（カメラ映像の上）----
+  dcX.clearRect(0,0,W,H);
+
+  // スポットライト
+  spots.forEach(function(s){s.ph+=s.spd*sm;drawSpot(dcX,s,W,H);});
+  // レーザー
+  lasers.forEach(function(l){l.ph+=l.spd*sm;drawLaser(dcX,l,W,H);});
+
+  // スピーカー（左右下）
+  var spSz=Math.min(W,H)*0.10;
+  drawSpeaker(dcX,spSz*0.7,H*0.99,spSz,gf*sm);
+  drawSpeaker(dcX,W-spSz*0.7,H*0.99,spSz,gf*sm+2);
+
+  // 花火
+  fwT++;if(fwT%(sm>1.5?30:70)===0)spawnFw(W,H);
+  for(var i=fws.length-1;i>=0;i--){
+    var fw=fws[i];fw.x+=fw.vx*sm;fw.y+=fw.vy*sm;fw.vy+=.06;fw.life-=.022*sm;
+    if(fw.life<=0){fws.splice(i,1);continue;}
+    dcX.save();dcX.globalAlpha=fw.life*.9;dcX.fillStyle=fw.col;
+    dcX.shadowColor=fw.col;dcX.shadowBlur=6;
+    dcX.beginPath();dcX.arc(fw.x,fw.y,2.8,0,Math.PI*2);dcX.fill();dcX.restore();
+  }
+
+  // 紙吹雪
+  confetti.forEach(function(p){
+    p.x+=p.vx*sm;p.y+=p.vy*sm;p.rot+=p.rv*sm;
+    if(p.y>1.05){p.y=-.05;p.x=Math.random();}
+    drawConfetti(dcX,p,W,H);
+  });
+
+  // 観客（手前）
+  crowd.forEach(function(c){
+    c.ph+=c.spd*sm;
+    drawCrowd(dcX,c,W,H);
+  });
+
+  // ビートフラッシュ（口開けブースト時）
+  if(sm>1.6){
+    dcX.save();
+    dcX.globalAlpha=(sm-1.6)*0.12*Math.abs(Math.sin(gf*0.5));
+    dcX.fillStyle=RAINBOW[gf%RAINBOW.length];
+    dcX.fillRect(0,0,W,H);
+    dcX.restore();
+  }
+
+  // speedMult をなめらかに戻す & 音テンポ連動
+  if(speedMult>1.0) speedMult=Math.max(1.0,speedMult-0.04);
+  setAudioTempo(speedMult);
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+// =============================================
+//  AR FACE DECORATION（ほっぺグロー）
+// =============================================
+function drawCheeks(ctx,lm,W,H){
+  var pt=function(i){return{x:(1-lm[i].x)*W,y:lm[i].y*H};};
+  var lc=pt(205),rc=pt(425),ls=pt(234),rs=pt(454);
+  var fw2=Math.hypot(rs.x-ls.x,rs.y-ls.y),r=fw2*.13;
+  [lc,rc].forEach(function(p){
+    var g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+    g.addColorStop(0,'rgba(255,80,150,0.4)');g.addColorStop(1,'rgba(255,80,150,0)');
+    ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+  });
+}
+
+// =============================================
+//  もやもや吹き出し（思考バブル）
+// =============================================
+// 雲形のもやもや＋小円の連なりで頭上に表示
+function drawThoughtBubble(ctx,hx,hy,faceW,W,H,anim,msg,col){
+  // hx,hy: 額上端付近 / faceW: 顔幅
+  var bw=Math.max(faceW*1.6,Math.min(W*0.42,300));
+  var bh=bw*0.46;
+  // ポップアニメ
+  var sc=1;
+  if(anim<6) sc=0.4+(anim/6)*0.65;
+  else if(anim<10) sc=1.05;
+  // ゆらゆら
+  var sway=Math.sin(anim*0.06)*bw*0.02;
+
+  // 本体中心（頭の上）
+  var cx=hx+sway, cy=hy-bh*0.85-faceW*0.55;
+  // 画面上端からはみ出さないよう調整
+  if(cy-bh/2<8) cy=bh/2+8;
+
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.scale(sc,sc);
+  ctx.translate(-cx,-cy);
+
+  // ---- 連なる小円（頭→雲）----
+  var t1x=hx, t1y=hy-faceW*0.12;
+  var t2x=(hx+cx)/2+sway*0.5, t2y=(t1y+cy+bh/2)/2;
+  ctx.fillStyle='rgba(255,255,255,0.95)';
+  ctx.strokeStyle=col;ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(t1x,t1y,faceW*0.05,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.arc(t2x,t2y,faceW*0.09,0,Math.PI*2);ctx.fill();ctx.stroke();
+
+  // ---- もやもや雲本体（複数円の合成）----
+  var lobes=[
+    {ox:-0.36,oy:0.05,r:0.30},
+    {ox:-0.15,oy:-0.18,r:0.34},
+    {ox:0.12,oy:-0.20,r:0.36},
+    {ox:0.36,oy:0.0,r:0.30},
+    {ox:0.18,oy:0.20,r:0.30},
+    {ox:-0.14,oy:0.22,r:0.30}
+  ];
+  // 白塗り
+  ctx.shadowColor='rgba(0,0,0,0.25)';ctx.shadowBlur=12;ctx.shadowOffsetY=3;
+  ctx.fillStyle='rgba(255,255,255,0.96)';
+  ctx.beginPath();
+  lobes.forEach(function(L){
+    var wob=1+Math.sin(anim*0.12+L.ox*9)*0.05; // もやもや揺れ
+    ctx.moveTo(cx+L.ox*bw+L.r*bh*wob,cy+L.oy*bh);
+    ctx.arc(cx+L.ox*bw,cy+L.oy*bh,L.r*bh*wob,0,Math.PI*2);
+  });
+  ctx.fill();
+  ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+  // 枠線（虹色ランダム）
+  ctx.strokeStyle=col;
+  ctx.lineWidth=3.5;
+  ctx.shadowColor=col;ctx.shadowBlur=8;
+  ctx.beginPath();
+  lobes.forEach(function(L){
+    var wob=1+Math.sin(anim*0.12+L.ox*9)*0.05;
+    ctx.moveTo(cx+L.ox*bw+L.r*bh*wob,cy+L.oy*bh);
+    ctx.arc(cx+L.ox*bw,cy+L.oy*bh,L.r*bh*wob,0,Math.PI*2);
+  });
+  ctx.stroke();
+  ctx.shadowBlur=0;
+  // 内側を白で塗り直し（枠線の内部重なり消し）
+  ctx.fillStyle='rgba(255,255,255,0.96)';
+  ctx.beginPath();
+  lobes.forEach(function(L){
+    var wob=1+Math.sin(anim*0.12+L.ox*9)*0.05;
+    ctx.moveTo(cx+L.ox*bw+(L.r*bh*wob-3),cy+L.oy*bh);
+    ctx.arc(cx+L.ox*bw,cy+L.oy*bh,Math.max(L.r*bh*wob-3,1),0,Math.PI*2);
+  });
+  ctx.fill();
+
+  // ---- テキスト ----
+  var fs=Math.min(bh*0.30,30);
+  ctx.font='900 '+fs+'px sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  // 長文なら縮小
+  if(ctx.measureText(msg).width>bw*0.82){
+    fs*=bw*0.82/ctx.measureText(msg).width;
+    ctx.font='900 '+fs+'px sans-serif';
+  }
+  ctx.fillStyle='rgba(0,0,0,0.12)';ctx.fillText(msg,cx+2,cy+2);
+  var tg=ctx.createLinearGradient(cx-bw/2,cy-fs/2,cx+bw/2,cy+fs/2);
+  tg.addColorStop(0,col);tg.addColorStop(0.5,'#ff4081');tg.addColorStop(1,col);
+  ctx.fillStyle=tg;ctx.fillText(msg,cx,cy);
+
+  ctx.restore();
+}
+
+// =============================================
+//  FACE STATES
+// =============================================
+var MAX_F=4,fSt=[];
+for(var i=0;i<MAX_F;i++){
+  fSt.push({
+    open:false,
+    cd:0,               // 「待てない！」表示の継続フレーム
+    af:0,               // バブルアニメフレーム
+    seen:false,
+    col:RAINBOW[Math.floor(Math.random()*RAINBOW.length)]
+  });
+}
+var MSG_THINK='\u30ab\u30af\u30a4\u30c1\u30d5\u30a7\u30b9\u884c\u304d\u305f\u3044\u306a';  // カクイチフェス行きたいな
+var MSG_OPEN='\u5f85\u3066\u306a\u3044\uff01';                                            // 待てない！
+
+function detectMouthOpen(lm,W,H){
+  var pt=function(i){return{x:(1-lm[i].x)*W,y:lm[i].y*H};};
+  var le=pt(159),re=pt(386),ul=pt(13),ll=pt(14);
+  var ed=Math.hypot(re.x-le.x,re.y-le.y);
+  return Math.abs(ll.y-ul.y)/ed > 0.22;
+}
+
+function onResults(res){
+  var W=arC.width=vid.videoWidth||window.innerWidth;
+  var H=arC.height=vid.videoHeight||window.innerHeight;
+  arX.clearRect(0,0,W,H);
+  var det=res.multiFaceLandmarks||[];
+
+  for(var i=det.length;i<MAX_F;i++){
+    fSt[i].open=false;fSt[i].cd=0;fSt[i].af=0;fSt[i].seen=false;
+  }
+
+  det.forEach(function(lm,fi){
+    if(fi>=MAX_F) return;
+    var fs=fSt[fi];
+    var pt=function(i){return{x:(1-lm[i].x)*W,y:lm[i].y*H};};
+
+    // 新しく顔が認識されたら枠色をランダムに引き直す＆アニメリセット
+    if(!fs.seen){
+      fs.seen=true;
+      fs.af=0;
+      fs.col=RAINBOW[Math.floor(Math.random()*RAINBOW.length)];
+    }
+    fs.af++;
+
+    drawCheeks(arX,lm,W,H);
+
+    // 頭の上の基準点：額(10)、顔幅(234-454)
+    var fo=pt(10),ls=pt(234),rs=pt(454);
+    var faceW=Math.hypot(rs.x-ls.x,rs.y-ls.y);
+    var headX=fo.x, headY=fo.y;
+
+    var isOpen=detectMouthOpen(lm,W,H);
+    if(isOpen){
+      if(!fs.open){
+        fs.open=true;
+        // 口を開けた瞬間：演出ブースト＆枠色チェンジ
+        speedMult=3.0;
+        fs.col=RAINBOW[Math.floor(Math.random()*RAINBOW.length)];
+      }
+      fs.cd=45;               // 開いている間＋しばらく「待てない！」
+    } else {
+      fs.open=false;
+      if(fs.cd>0) fs.cd--;
+    }
+
+    var msg=(fs.cd>0)?MSG_OPEN:MSG_THINK;
+    drawThoughtBubble(arX,headX,headY,faceW,W,H,fs.af,msg,fs.col);
+  });
+
+  // 手アイコン（星＋KAKUICHI FES）
+  starAnim++;
+  drawHandIcons(arX,starAnim);
+}
+
+// =============================================
+//  CAMERA
+// =============================================
+var vid=document.getElementById('video');
+var flashEl=document.getElementById('flash');
+var toastEl=document.getElementById('toast');
+var facing='user',stream=null,fmesh=null,loopId=null,proc=false;
+
+function startAR(){document.getElementById('start-btn').style.display='none';initAudio();startCam('user');}
+
+async function startCam(f){
+  if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
+  if(loopId){cancelAnimationFrame(loopId);loopId=null;}
+  proc=false;
+  try{
+    facing=f;
+    var s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:f},width:{ideal:1280},height:{ideal:720}}});
+    stream=s;vid.srcObject=s;
+    vid.style.transform=f==='user'?'scaleX(-1)':'scaleX(1)';
+    vid.style.opacity='0';
+    vid.style.transition='opacity 0.5s';
+    document.getElementById('controls').style.display='flex';
+    var cb=document.getElementById('cam-btn');
+    if(cb)cb.innerHTML=f==='user'?'IN':'OUT';
+    await new Promise(function(r){vid.onloadedmetadata=r;});
+    await vid.play();
+    setTimeout(function(){vid.style.opacity='1';},100);
+    arC.width=vid.videoWidth||1280;arC.height=vid.videoHeight||720;
+    if(!fmesh) await initFM(); else startLoop();
+  }catch(e){showToast('Camera error');console.error(e);}
+}
+
+async function switchCamera(){showToast('\u5207\u66ff\u4e2d...');await startCam(facing==='user'?'environment':'user');}
+
+function startLoop(){
+  if(loopId){cancelAnimationFrame(loopId);loopId=null;}proc=false;
+  (function lp(){
+    if(fmesh&&vid.readyState>=2&&!proc){proc=true;fmesh.send({image:vid}).catch(function(){}).finally(function(){proc=false;});}
+    loopId=requestAnimationFrame(lp);
+  })();
+}
+
+async function initFM(){
+  fmesh=new FaceMesh({locateFile:function(f){return'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/'+f;}});
+  fmesh.setOptions({maxNumFaces:MAX_F,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+  fmesh.onResults(onResults);
+  await fmesh.initialize();
+  startLoop();
+  initHands();
+}
+
+// =============================================
+//  SCREENSHOT
+// =============================================
+function takeScreenshot(){
+  flashEl.style.opacity='1';
+  setTimeout(function(){flashEl.style.opacity='0';},80);
+  var W=window.innerWidth,H=window.innerHeight;
+  var sh=document.createElement('canvas');sh.width=W;sh.height=H;
+  var sc=sh.getContext('2d');
+  sc.drawImage(bgC,0,0,W,H);
+  sc.save();if(facing==='user'){sc.translate(W,0);sc.scale(-1,1);}
+  try{sc.drawImage(vid,0,0,W,H);}catch(e){}sc.restore();
+  sc.drawImage(dcC,0,0,W,H);
+  sc.drawImage(arC,0,0,W,H);
+  var sH=80,sg=sc.createLinearGradient(0,H-sH,0,H);
+  sg.addColorStop(0,'rgba(15,8,40,0)');sg.addColorStop(1,'rgba(15,8,40,0.9)');
+  sc.fillStyle=sg;sc.fillRect(0,H-sH,W,sH);
+  var str='\u30ab\u30af\u30a4\u30c1FES \u76db\u308a\u4e0a\u304c\u3063\u3066\u3044\u3053\u3046\uff01';
+  var fs=Math.min(36,W*.042);sc.font='900 '+fs+'px sans-serif';sc.textBaseline='middle';
+  var chs=str.split(''),ws=chs.map(function(c){return sc.measureText(c).width;});
+  var gap=fs*.06,tw=ws.reduce(function(a,v){return a+v;},0)+gap*(chs.length-1),tx=(W-tw)/2;
+  chs.forEach(function(ch,i){var c=RAINBOW[i%RAINBOW.length];sc.fillStyle=c;sc.shadowColor=c;sc.shadowBlur=10;sc.fillText(ch,tx,H-sH/2);tx+=ws[i]+gap;});
+  sc.shadowBlur=0;
+  var fn='kakuichi_fes_'+Date.now()+'.png';
+  var isIOS=/iP(hone|ad|od)/.test(navigator.userAgent);
+  if(isIOS){
+    sh.toBlob(async function(blob){
+      if(navigator.share&&navigator.canShare&&navigator.canShare({files:[new File([blob],'a.png',{type:'image/png'})]})){
+        try{await navigator.share({files:[new File([blob],fn,{type:'image/png'})],title:'KAKUICHI FES AR'});showToast('\u4fdd\u5b58\u3057\u307e\u3057\u305f');return;}catch(e){}
+      }
+      var url=URL.createObjectURL(blob);
+      var w=window.open('','_blank');
+      if(w){
+        w.document.write('<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;background:#000;display:flex;flex-direction:column;align-items:center;min-height:100vh}img{max-width:100%}p{color:#fff;font-size:16px;margin:12px;text-align:center}</style></head><body><p>\u9577\u62bc\u3057\u3057\u3066\u5199\u771f\u306b\u4fdd\u5b58</p><img src="'+url+'"></body></html>');
+        w.document.close();
+      }
+      showToast('\u9577\u62bc\u3057\u3067\u4fdd\u5b58');
+    },'image/png');
+  } else {
+    var a=document.createElement('a');
+    a.download=fn;a.href=sh.toDataURL('image/png');
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    showToast('\u4fdd\u5b58\u3057\u307e\u3057\u305f');
+  }
+}
+
+function showToast(msg){
+  toastEl.textContent=msg;toastEl.style.display='block';
+  clearTimeout(toastEl._t);
+  toastEl._t=setTimeout(function(){toastEl.style.display='none';},2500);
+}
+
+// =============================================
+//  HAND DETECTION - MediaPipe Hands
+// =============================================
+var handMesh=null;
+var handLoopId=null;
+var handProc=false;
+var detectedHands=[];
+
+function initHands(){
+  if(handMesh) return;
+  handMesh=new Hands({locateFile:function(f){
+    return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+  }});
+  handMesh.setOptions({
+    maxNumHands:4,
+    modelComplexity:0,
+    minDetectionConfidence:0.6,
+    minTrackingConfidence:0.5
+  });
+  handMesh.onResults(onHandResults);
+  handMesh.initialize().then(function(){
+    startHandLoop();
+  });
+}
+
+function startHandLoop(){
+  if(handLoopId) cancelAnimationFrame(handLoopId);
+  handProc=false;
+  (function lp(){
+    if(handMesh&&vid.readyState>=2&&!handProc){
+      handProc=true;
+      handMesh.send({image:vid}).catch(function(){}).finally(function(){handProc=false;});
+    }
+    handLoopId=requestAnimationFrame(lp);
+  })();
+}
+
+// 手のひらに表示するラベル一覧
+var HAND_LABELS=[
+  ['KAKUICHI','FES'],
+  ['\u30b8\u30e7\u30fc',''],
+  ['\u304b\u3064\u307f\u3087\u3093',''],
+  ['\u3042\u307f\u308b\u3093',''],
+  ['\u304b\u306a\u3053\u2191',''],
+  ['\u30ab\u30a4\u30c8','']
+];
+// 手ごとのラベル固定（手が消えるまで変わらないようindex管理）
+var handLabelIdx=[];
+
+function onHandResults(res){
+  var W=arC.width||window.innerWidth;
+  var H=arC.height||window.innerHeight;
+  var prevLen=detectedHands.length;
+  detectedHands=[];
+  if(!res.multiHandLandmarks) return;
+  res.multiHandLandmarks.forEach(function(lm,hi){
+    // 手首(0)と中指付け根(9)の中間＝手のひら中心
+    var wx=(1-lm[0].x)*W, wy=lm[0].y*H;
+    var mx=(1-lm[9].x)*W, my=lm[9].y*H;
+    var sz=Math.hypot(mx-wx,my-wy)*2.2;
+    // 新しく検出された手にはランダムなラベルを割り当て
+    if(hi>=handLabelIdx.length||prevLen===0){
+      handLabelIdx[hi]=Math.floor(Math.random()*HAND_LABELS.length);
+    }
+    detectedHands.push({cx:(wx+mx)/2, cy:(wy+my)/2, sz:Math.max(60,Math.min(sz,260)), labelIdx:handLabelIdx[hi]});
+  });
+  // 手が消えたらインデックスをリセット
+  if(detectedHands.length===0) handLabelIdx=[];
+}
+
+// =============================================
+//  HAND ICON：星 ＋「KAKUICHI FES」
+// =============================================
+var starAnim=0;
+
+function drawStarPath(ctx,r){
+  // 5角星パス
+  ctx.beginPath();
+  for(var p=0;p<10;p++){
+    var pr=(p%2===0)?r:r*0.45;
+    var pa=-Math.PI/2+p*Math.PI/5;
+    var px=Math.cos(pa)*pr, py=Math.sin(pa)*pr;
+    p===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+}
+
+function drawStarBadge(ctx,cx,cy,sz,frame,label){
+  if(!label) label=['KAKUICHI','FES'];
+  var r=sz*0.55;
+  var pulse=1+Math.sin(frame*0.15)*0.06;
+  var rot=Math.sin(frame*0.08)*0.10;
+
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(rot);
+  ctx.scale(pulse,pulse);
+
+  // ---- グロー ----
+  var gg=ctx.createRadialGradient(0,0,r*0.2,0,0,r*1.4);
+  gg.addColorStop(0,'rgba(255,234,0,0.35)');
+  gg.addColorStop(1,'rgba(255,234,0,0)');
+  ctx.beginPath();ctx.arc(0,0,r*1.4,0,Math.PI*2);
+  ctx.fillStyle=gg;ctx.fill();
+
+  // ---- 星本体 ----
+  drawStarPath(ctx,r);
+  var sg=ctx.createLinearGradient(-r,-r,r,r);
+  sg.addColorStop(0,'#ffea00');
+  sg.addColorStop(0.5,'#ffab00');
+  sg.addColorStop(1,'#ff6d00');
+  ctx.fillStyle=sg;
+  ctx.shadowColor='rgba(255,180,0,0.8)';ctx.shadowBlur=18;
+  ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.strokeStyle='#fff';
+  ctx.lineWidth=r*0.06;
+  ctx.lineJoin='round';
+  ctx.stroke();
+
+  // ---- 星の上にラベルテキスト ----
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  var line1=label[0]||'', line2=label[1]||'';
+  var hasTwo=(line2!=='');
+  var fs1=hasTwo?r*0.26:r*0.36;
+  ctx.font='900 '+fs1+'px sans-serif';
+  // 文字が長い場合は縮小
+  if(ctx.measureText(line1).width>r*1.7){
+    fs1*=r*1.7/ctx.measureText(line1).width;
+    ctx.font='900 '+fs1+'px sans-serif';
+  }
+  var y1=hasTwo?-r*0.10:0;
+  // 影
+  ctx.fillStyle='rgba(120,40,0,0.5)';
+  ctx.fillText(line1,1.5,y1+1.5);
+  // 白文字＋枠
+  ctx.fillStyle='#fff';
+  ctx.strokeStyle='rgba(200,80,0,0.8)';
+  ctx.lineWidth=r*0.025;
+  ctx.fillText(line1,0,y1);
+  ctx.strokeText(line1,0,y1);
+  if(hasTwo){
+    var fs2=r*0.34;
+    ctx.font='900 '+fs2+'px sans-serif';
+    if(ctx.measureText(line2).width>r*1.7){
+      fs2*=r*1.7/ctx.measureText(line2).width;
+      ctx.font='900 '+fs2+'px sans-serif';
+    }
+    ctx.fillStyle='rgba(120,40,0,0.5)';
+    ctx.fillText(line2,1.5,r*0.22+1.5);
+    ctx.fillStyle='#fff';
+    ctx.fillText(line2,0,r*0.22);
+    ctx.strokeText(line2,0,r*0.22);
+  }
+
+  // ---- キラキラ（外周のミニ星）----
+  for(var k=0;k<5;k++){
+    var ka=k*Math.PI*2/5+frame*0.05;
+    var kx=Math.cos(ka)*(r*1.25),ky=Math.sin(ka)*(r*1.25);
+    var ks=r*0.10+Math.sin(frame*0.2+k)*r*0.04;
+    ctx.save();
+    ctx.translate(kx,ky);ctx.rotate(frame*0.1+k);
+    ctx.fillStyle=RAINBOW[k%RAINBOW.length];
+    drawStarPath(ctx,ks);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function drawHandIcons(ctx,frame){
+  detectedHands.forEach(function(h){
+    var label=HAND_LABELS[h.labelIdx!=null?h.labelIdx:0];
+    drawStarBadge(ctx,h.cx,h.cy,h.sz,frame,label);
+  });
+}
+
+</script>
+</body>
+</html>
