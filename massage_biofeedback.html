@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>もみ返し予測マッサージ制御 ｜ 顔表情・血流バイオフィードバック</title>
+<style>
+  :root{
+    --bg:#1a1513; --panel:#221b18; --panel2:#2a211d; --line:#3a302a;
+    --text:#ece2d8; --muted:#9c8d80; --faint:#6f635a;
+    --calm:#73b89a;          /* 良好・リラックス */
+    --warm:#e0a458;          /* 注意 */
+    --alert:#e26a52;         /* もみ返しリスク・痛み */
+    --blood:#d2603f;         /* 血流・温感 */
+    --accent:#6fa8c7;        /* UIハイライト */
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{padding:18px;max-width:1280px;margin:0 auto}
+  h1{font-size:17px;font-weight:650;letter-spacing:.01em;margin:0}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px;letter-spacing:.02em}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button{font-family:var(--sans);font-size:13px;font-weight:560;color:var(--text);background:var(--panel2);
+    border:1px solid var(--line);border-radius:9px;padding:9px 14px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--faint);background:#322822}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--calm);color:#10201a;border-color:transparent}
+  button.primary:hover{filter:brightness(1.07)}
+  button.live{background:var(--alert);color:#250f0a;border-color:transparent}
+  button:disabled{opacity:.4;cursor:not-allowed}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr) minmax(0,1fr);gap:14px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+  .panel h2{font-size:11px;font-weight:620;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 11px}
+
+  /* video */
+  .stage{position:relative;border-radius:11px;overflow:hidden;background:#0d0a09;aspect-ratio:4/3}
+  video,canvas#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  video{transform:scaleX(-1)}
+  canvas#overlay{transform:scaleX(-1)}
+  .stage .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;color:var(--faint);font-size:13px;padding:24px;line-height:1.6}
+
+  /* gauges */
+  .gauge{margin-bottom:13px}
+  .gauge .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+  .gauge .lab{font-size:12.5px;color:var(--text)}
+  .gauge .val{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .bar{height:9px;border-radius:6px;background:#15100e;overflow:hidden;position:relative}
+  .bar > i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;width:0;transition:width .2s ease}
+  .vital{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .vital .cell{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .vital .num{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
+  .vital .cap{font-size:11px;color:var(--muted);margin-top:5px;letter-spacing:.03em}
+  .vital .unit{font-size:12px;color:var(--faint);font-family:var(--mono)}
+
+  /* body map */
+  .bodywrap{display:flex;justify-content:center;margin:2px 0 8px}
+  svg#body{width:100%;max-width:280px;height:auto}
+  .zone-dot{cursor:pointer;transition:.2s}
+  .zone-label{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+
+  .now{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px;margin-bottom:11px}
+  .now .line{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+  .now .k{font-size:12px;color:var(--muted)}
+  .now .v{font-family:var(--mono);font-size:14px;font-weight:600}
+  .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:7px;
+    background:#15100e;border:1px solid var(--line)}
+
+  .reco{border-radius:11px;padding:13px 14px;margin-bottom:11px;border:1px solid var(--line);
+    background:linear-gradient(180deg,#2a211d,#241c19);min-height:62px;transition:.25s}
+  .reco.act{border-color:var(--warm);background:linear-gradient(180deg,#332518,#2a211d)}
+  .reco.alarm{border-color:var(--alert);background:linear-gradient(180deg,#3a201a,#2c1c18)}
+  .reco .tag{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  .reco .msg{font-size:14.5px;font-weight:600;line-height:1.45}
+
+  .log{font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--muted);
+    background:#15100e;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    height:118px;overflow-y:auto}
+  .log b{color:var(--text);font-weight:600}
+  .log .t{color:var(--faint)}
+
+  .settings{display:flex;flex-direction:column;gap:11px;margin-top:11px;padding-top:12px;border-top:1px solid var(--line)}
+  .settings label{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);gap:12px}
+  .settings input[type=range]{flex:1;accent-color:var(--accent);max-width:150px}
+  .settings .sv{font-family:var(--mono);color:var(--text);min-width:30px;text-align:right}
+  .status{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:8px}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--faint);margin-right:6px;vertical-align:middle}
+  .dot.on{background:var(--calm);box-shadow:0 0 7px var(--calm)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>もみ返し予測マッサージ制御</h1>
+    <div class="sub">顔の表情筋・血流(自律神経反応)をリアルタイム解析し、過刺激の前に部位・もみ方・強さを切り替えます</div>
+    <div class="status"><span class="dot" id="camDot"></span><span id="statusText">カメラ未接続</span></div>
+  </div>
+  <div class="controls">
+    <button id="camBtn" class="primary">カメラを開始</button>
+    <button id="massageBtn" disabled>マッサージ開始</button>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- 左：映像 -->
+  <section class="panel">
+    <h2>解析カメラ</h2>
+    <div class="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hint" id="hint">「カメラを開始」を押して顔を枠に収めてください。<br>額・頬のROIから血流(赤み・心拍)を、表情筋から痛み・緊張を読み取ります。</div>
+    </div>
+    <div class="settings">
+      <label>痛み・緊張への感度
+        <input type="range" id="sensTension" min="0.5" max="2" step="0.1" value="1.1">
+        <span class="sv" id="svTension">1.1</span>
+      </label>
+      <label>部位の切替しきい値(疲労)
+        <input type="range" id="sensSwitch" min="40" max="90" step="5" value="65">
+        <span class="sv" id="svSwitch">65</span>
+      </label>
+    </div>
+  </section>
+
+  <!-- 中央：生体指標 -->
+  <section class="panel">
+    <h2>生体指標(顔から推定)</h2>
+
+    <div class="gauge">
+      <div class="row"><span class="lab">痛み・緊張(表情筋)</span><span class="val" id="vTension">–</span></div>
+      <div class="bar"><i id="bTension" style="background:var(--alert)"></i></div>
+    </div>
+    <div class="gauge">
+      <div class="row"><span class="lab">自律神経の高ぶり(血流・心拍)</span><span class="val" id="vArousal">–</span></div>
+      <div class="bar"><i id="bArousal" style="background:var(--blood)"></i></div>
+    </div>
+    <div class="gauge">
+      <div class="row"><span class="lab">快適度</span><span class="val" id="vComfort">–</span></div>
+      <div class="bar"><i id="bComfort" style="background:var(--calm)"></i></div>
+    </div>
+
+    <div class="vital">
+      <div class="cell">
+        <div class="num"><span id="vHr">––</span> <span class="unit">bpm</span></div>
+        <div class="cap">推定心拍(rPPG)<span id="hrQ"></span></div>
+      </div>
+      <div class="cell">
+        <div class="num"><span id="vFlush">––</span></div>
+        <div class="cap">顔の赤み変化(相対)</div>
+      </div>
+    </div>
+
+    <div style="margin-top:13px;font-size:11.5px;color:var(--faint);line-height:1.6">
+      表情筋: 眉間のしわ・目を細める・口の緊張・鼻のしかめを統合。<br>
+      血流: 額/頬の緑成分の周期から心拍、赤み(R−G)の上昇で交感神経の高ぶりを推定。
+    </div>
+  </section>
+
+  <!-- 右：制御 -->
+  <section class="panel">
+    <h2>マッサージ制御</h2>
+
+    <div class="bodywrap">
+      <svg id="body" viewBox="0 0 280 200" aria-label="肩・首の施術部位マップ"></svg>
+    </div>
+
+    <div class="reco" id="reco">
+      <div class="tag">案内</div>
+      <div class="msg" id="recoMsg">待機中 — 「マッサージ開始」で制御を始めます。</div>
+    </div>
+
+    <div class="now">
+      <div class="line"><span class="k">施術部位</span><span class="v pill" id="nowZone">––</span></div>
+      <div class="line"><span class="k">もみ方</span><span class="v pill" id="nowMethod">––</span></div>
+      <div class="line"><span class="k">強さ</span><span class="v pill" id="nowIntensity">––</span></div>
+    </div>
+
+    <div class="gauge">
+      <div class="row"><span class="lab">もみ返しリスク</span><span class="val" id="vRisk">0%</span></div>
+      <div class="bar"><i id="bRisk" style="background:var(--alert)"></i></div>
+    </div>
+
+    <div class="log" id="log"></div>
+  </section>
+</div>
+
+<script type="module">
+import { FilesetResolver, FaceLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ---------- DOM ---------- */
+const $ = id => document.getElementById(id);
+const video=$('video'), overlay=$('overlay'), octx=overlay.getContext('2d');
+const hint=$('hint'), camBtn=$('camBtn'), massageBtn=$('massageBtn');
+const camDot=$('camDot'), statusText=$('statusText');
+
+/* sampling canvas (rPPG用・低解像度) */
+const samp=document.createElement('canvas'); samp.width=160; samp.height=120;
+const sctx=samp.getContext('2d',{willReadFrequently:true});
+
+/* ---------- 状態 ---------- */
+let landmarker=null, running=false, massaging=false;
+let lastVideoTime=-1;
+
+/* 表情指標の平滑化 */
+let tensionEMA=0, comfortEMA=0;
+let relaxBaseline=0;        // リラックス時のベースライン
+/* rPPG */
+const ppgBuf=[];            // {t, g}
+let flushEMA=0, flushBaseline=null, arousalEMA=0;
+let hrBpm=null, hrQuality=0;
+
+/* ---------- 施術部位 ---------- */
+const ZONES=[
+  {id:'nl',name:'首・左', x:120,y:38},
+  {id:'nr',name:'首・右', x:160,y:38},
+  {id:'sl',name:'肩上・左',x:78, y:78},
+  {id:'sr',name:'肩上・右',x:202,y:78},
+  {id:'bl',name:'肩甲骨・左',x:96,y:130},
+  {id:'br',name:'肩甲骨・右',x:184,y:130},
+];
+ZONES.forEach(z=>{z.fatigue=0; z.coolUntil=0;});
+const METHODS={knead:'もみ', shiatsu:'指圧', tap:'たたき', stroke:'さすり'};
+const INTENSITY=['','弱','中','強'];
+
+let activeZone=ZONES[2];   // 肩上・左から
+let method='knead', intensity=2;
+let risk=0, sessionT=0;
+let tensionStreak=0, soothing=0;
+let arousalHist=[];
+
+/* settings */
+const sensT=$('sensTension'), sensSw=$('sensSwitch');
+sensT.oninput=()=>$('svTension').textContent=sensT.value;
+sensSw.oninput=()=>$('svSwitch').textContent=sensSw.value;
+
+/* ---------- body map 描画 ---------- */
+const bodySvg=$('body');
+function buildBody(){
+  // 背中・肩のシルエット(簡易) + ゾーン
+  let s=`<path d="M40,150 Q40,70 90,55 Q110,30 140,30 Q170,30 190,55 Q240,70 240,150 L240,195 L40,195 Z"
+            fill="#2a211d" stroke="#3a302a" stroke-width="1.5"/>`;
+  s+=`<line x1="140" y1="30" x2="140" y2="195" stroke="#3a302a" stroke-width="1" stroke-dasharray="3 4"/>`;
+  ZONES.forEach(z=>{
+    s+=`<circle class="zone-dot" id="dot-${z.id}" cx="${z.x}" cy="${z.y}" r="15"
+          fill="#15100e" stroke="#4a3f38" stroke-width="1.5"/>`;
+    s+=`<text class="zone-label" x="${z.x}" y="${z.y+25}" text-anchor="middle">${z.name}</text>`;
+  });
+  bodySvg.innerHTML=s;
+  ZONES.forEach(z=>$('dot-'+z.id).onclick=()=>{ if(massaging){ switchTo(z,'手動'); } });
+}
+function warmth(f){ // 疲労→温感色
+  const t=Math.min(1,f/100);
+  const r=Math.round(33+t*189), g=Math.round(16+t*60), b=Math.round(14+t*30);
+  return `rgb(${r},${g},${b})`;
+}
+function renderBody(){
+  ZONES.forEach(z=>{
+    const dot=$('dot-'+z.id); if(!dot)return;
+    dot.setAttribute('fill',warmth(z.fatigue));
+    const active=(z===activeZone);
+    dot.setAttribute('stroke',active?'#e0a458':'#4a3f38');
+    dot.setAttribute('stroke-width',active?'3':'1.5');
+    dot.setAttribute('r',active?'17':'15');
+  });
+}
+buildBody(); renderBody();
+
+/* ---------- ログ ---------- */
+function log(msg,strong){
+  const el=$('log');
+  const t=new Date().toLocaleTimeString('ja-JP',{hour12:false});
+  el.insertAdjacentHTML('afterbegin',
+    `<div><span class="t">${t}</span> ${strong?`<b>${msg}</b>`:msg}</div>`);
+  while(el.children.length>40) el.lastChild.remove();
+}
+
+/* ---------- カメラ ---------- */
+camBtn.onclick=async()=>{
+  if(running){ stopCam(); return; }
+  try{
+    statusText.textContent='モデル読込中…';
+    if(!landmarker) await initModel();
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'},audio:false});
+    video.srcObject=stream; await video.play();
+    overlay.width=video.videoWidth; overlay.height=video.videoHeight;
+    running=true; hint.style.display='none';
+    camBtn.textContent='カメラ停止'; camBtn.classList.remove('primary'); camBtn.classList.add('live');
+    massageBtn.disabled=false; camDot.classList.add('on'); statusText.textContent='解析中';
+    loop();
+  }catch(e){
+    statusText.textContent='カメラを開始できません: '+e.message;
+    hint.innerHTML='カメラにアクセスできませんでした。<br>HTTPSまたはlocalhostで開き、ブラウザのカメラ許可を確認してください。';
+  }
+};
+function stopCam(){
+  running=false; massaging=false; massageBtn.textContent='マッサージ開始';
+  massageBtn.classList.remove('live'); massageBtn.disabled=true;
+  if(video.srcObject){video.srcObject.getTracks().forEach(t=>t.stop()); video.srcObject=null;}
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  camBtn.textContent='カメラを開始'; camBtn.classList.add('primary'); camBtn.classList.remove('live');
+  camDot.classList.remove('on'); statusText.textContent='カメラ未接続'; hint.style.display='flex';
+}
+async function initModel(){
+  const fileset=await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  landmarker=await FaceLandmarker.createFromOptions(fileset,{
+    baseOptions:{modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      delegate:"GPU"},
+    outputFaceBlendshapes:true, runningMode:"VIDEO", numFaces:1
+  });
+}
+
+/* ---------- メインループ ---------- */
+function loop(){
+  if(!running)return;
+  if(video.currentTime!==lastVideoTime){
+    lastVideoTime=video.currentTime;
+    const res=landmarker.detectForVideo(video, performance.now());
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    if(res.faceLandmarks && res.faceLandmarks.length){
+      const lm=res.faceLandmarks[0];
+      const bs=res.faceBlendshapes?.[0]?.categories||[];
+      processFace(lm,bs);
+      drawOverlay(lm);
+      statusText.textContent='解析中';
+    }else{
+      statusText.textContent='顔を検出できません';
+      decay(); // 顔がないと指標は中立へ
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 表情・血流の解析 ---------- */
+function bsv(bs,name){const c=bs.find(x=>x.categoryName===name);return c?c.score:0;}
+
+function processFace(lm,bs){
+  /* --- 痛み・緊張(表情筋) --- */
+  const brow=(bsv(bs,'browDownLeft')+bsv(bs,'browDownRight'))/2;
+  const squint=(bsv(bs,'eyeSquintLeft')+bsv(bs,'eyeSquintRight'))/2;
+  const cheekSq=(bsv(bs,'cheekSquintLeft')+bsv(bs,'cheekSquintRight'))/2;
+  const frown=(bsv(bs,'mouthFrownLeft')+bsv(bs,'mouthFrownRight'))/2;
+  const press=(bsv(bs,'mouthPressLeft')+bsv(bs,'mouthPressRight'))/2;
+  const sneer=(bsv(bs,'noseSneerLeft')+bsv(bs,'noseSneerRight'))/2;
+  let raw = brow*1.3 + squint*1.0 + cheekSq*0.8 + frown*1.1 + press*0.9 + sneer*1.2;
+  raw = Math.min(1, raw/3.2) * parseFloat(sensT.value);
+  tensionEMA = tensionEMA*0.8 + Math.min(1,raw)*0.2;
+  // リラックス時ベースラインをゆっくり学習
+  if(tensionEMA<0.15) relaxBaseline = relaxBaseline*0.99 + tensionEMA*0.01;
+  const tension = Math.max(0, tensionEMA - relaxBaseline);
+
+  /* --- 快適(微笑み・口角) --- */
+  const smile=(bsv(bs,'mouthSmileLeft')+bsv(bs,'mouthSmileRight'))/2;
+  comfortEMA = comfortEMA*0.85 + (smile*(1-tension))*0.15;
+
+  /* --- 血流(rPPG / 赤み) --- */
+  sctx.save(); sctx.scale(-1,1); sctx.drawImage(video,-samp.width,0,samp.width,samp.height); sctx.restore();
+  const roi=[151,50,280].map(i=>({x:lm[i].x,y:lm[i].y})); // 額・両頬
+  let R=0,G=0,B=0,n=0;
+  for(const p of roi){
+    const cx=Math.round(p.x*samp.width), cy=Math.round(p.y*samp.height);
+    const x0=Math.max(0,cx-7), y0=Math.max(0,cy-7);
+    const w=Math.min(samp.width-x0,14), h=Math.min(samp.height-y0,14);
+    if(w<=0||h<=0)continue;
+    const d=sctx.getImageData(x0,y0,w,h).data;
+    for(let k=0;k<d.length;k+=4){R+=d[k];G+=d[k+1];B+=d[k+2];n++;}
+  }
+  if(n>0){
+    R/=n;G/=n;B/=n;
+    ppgBuf.push({t:performance.now(),g:G});
+    while(ppgBuf.length && performance.now()-ppgBuf[0].t>9000) ppgBuf.shift();
+    estimateHR();
+    // 赤み(R-G正規化)→ベースライン差で flush
+    const redness=(R-G)/(R+G+B+1);
+    if(flushBaseline===null) flushBaseline=redness;
+    else flushBaseline=flushBaseline*0.999+redness*0.001;
+    flushEMA=flushEMA*0.9+(redness-flushBaseline)*0.1;
+  }
+
+  /* --- 自律神経の高ぶり(arousal) --- */
+  const hrComponent = hrBpm? Math.min(1,Math.max(0,(hrBpm-70)/40)) : 0;   // 70→110bpmで0→1
+  const flushComp   = Math.min(1,Math.max(0,flushEMA*60+0.5*tension));
+  let arousal = hrComponent*0.5*hrQuality + flushComp*0.5 + tension*0.25;
+  arousalEMA = arousalEMA*0.9 + Math.min(1,arousal)*0.1;
+  arousalHist.push(arousalEMA); if(arousalHist.length>60)arousalHist.shift();
+
+  updateUI(tension, arousalEMA, comfortEMA);
+}
+
+function estimateHR(){
+  if(ppgBuf.length<60){hrBpm=null;hrQuality=0;return;}
+  const n=ppgBuf.length;
+  const t0=ppgBuf[0].t, dur=(ppgBuf[n-1].t-t0)/1000;
+  if(dur<5){hrQuality=0;return;}
+  // detrend
+  const mean=ppgBuf.reduce((a,p)=>a+p.g,0)/n;
+  const sig=ppgBuf.map(p=>p.g-mean);
+  // naive DFT scan 0.75–3.0Hz
+  let best=0,bestF=0,total=0;
+  for(let f=0.75;f<=3.0;f+=0.02){
+    let re=0,im=0;
+    for(let i=0;i<n;i++){
+      const tt=(ppgBuf[i].t-t0)/1000, ph=2*Math.PI*f*tt;
+      re+=sig[i]*Math.cos(ph); im+=sig[i]*Math.sin(ph);
+    }
+    const mag=Math.sqrt(re*re+im*im); total+=mag;
+    if(mag>best){best=mag;bestF=f;}
+  }
+  hrBpm=Math.round(bestF*60);
+  hrQuality=Math.min(1,Math.max(0,(best/(total/((3.0-0.75)/0.02))-1)/2)); // ピークの突出度
+}
+
+function decay(){ // 顔ロスト時：指標を中立へ
+  tensionEMA*=0.95; arousalEMA*=0.97;
+  updateUI(Math.max(0,tensionEMA-relaxBaseline),arousalEMA,comfortEMA);
+}
+
+/* ---------- 描画(顔オーバーレイ) ---------- */
+function drawOverlay(lm){
+  const w=overlay.width,h=overlay.height;
+  // 額・頬ROI
+  octx.strokeStyle='rgba(210,96,63,.9)'; octx.lineWidth=2;
+  [151,50,280].forEach(i=>{
+    const x=lm[i].x*w,y=lm[i].y*h;
+    octx.strokeRect(x-12,y-12,24,24);
+  });
+  // 眉間・口まわりの表情ポイント
+  octx.fillStyle='rgba(115,184,154,.9)';
+  [9,107,336,61,291,0,17].forEach(i=>{
+    octx.beginPath();octx.arc(lm[i].x*w,lm[i].y*h,2.4,0,7);octx.fill();
+  });
+}
+
+/* ---------- UI更新 ---------- */
+function setBar(id,v,col){const e=$(id);e.style.width=Math.round(v*100)+'%';}
+function updateUI(tension, arousal, comfort){
+  $('vTension').textContent=(tension*100).toFixed(0);
+  $('vArousal').textContent=(arousal*100).toFixed(0);
+  $('vComfort').textContent=(comfort*100).toFixed(0);
+  setBar('bTension',tension); setBar('bArousal',arousal); setBar('bComfort',Math.min(1,comfort));
+  $('vHr').textContent = hrBpm? hrBpm : '––';
+  $('hrQ').textContent = hrBpm? (hrQuality>0.4?' ●':' ○') : (ppgBuf.length?' 計測中':'');
+  const fl=flushEMA*100;
+  $('vFlush').textContent=(fl>=0?'+':'')+fl.toFixed(1);
+}
+
+/* ---------- 制御ロジック(もみ返し予測) ---------- */
+massageBtn.onclick=()=>{
+  if(!running)return;
+  massaging=!massaging;
+  if(massaging){
+    massageBtn.textContent='マッサージ停止'; massageBtn.classList.add('live');
+    activeZone=ZONES.reduce((a,b)=>a.fatigue<b.fatigue?a:b);
+    method='knead'; intensity=2; risk=0; sessionT=0; tensionStreak=0;
+    log('施術開始 → '+activeZone.name,true);
+  }else{
+    massageBtn.textContent='マッサージ開始'; massageBtn.classList.remove('live');
+    log('施術終了',true);
+    setReco('待機中 — 「マッサージ開始」で制御を始めます。','');
+  }
+};
+function switchTo(zone,reason){
+  if(activeZone) activeZone.coolUntil=performance.now()+8000;
+  activeZone=zone; method='knead';
+  log(`部位切替 → ${zone.name}（${reason}）`,true);
+  setReco(`次は「${zone.name}」へ。${reason}のため移動します。`,'act');
+}
+function setReco(msg,cls){
+  $('recoMsg').textContent=msg;
+  const r=$('reco'); r.className='reco'+(cls?' '+cls:'');
+}
+
+const TICK=300;
+setInterval(()=>{
+  if(massaging) controlTick(TICK/1000);
+  renderBody();
+  $('nowZone').textContent=activeZone.name;
+  $('nowMethod').textContent=METHODS[method];
+  $('nowIntensity').textContent=INTENSITY[intensity];
+  $('vRisk').textContent=Math.round(risk)+'%';
+  setBar('bRisk',risk/100);
+},TICK);
+
+function controlTick(dt){
+  sessionT+=dt;
+  const tension=Math.max(0,tensionEMA-relaxBaseline);
+  const arousal=arousalEMA;
+  const switchTh=parseFloat(sensSw.value);
+
+  // 疲労の蓄積（強さ・高ぶりで加速）
+  const rate=(6 + intensity*5) * (1+arousal*0.9) * dt;
+  activeZone.fatigue=Math.min(100,activeZone.fatigue+rate);
+  ZONES.forEach(z=>{ if(z!==activeZone) z.fatigue=Math.max(0,z.fatigue-2.5*dt); });
+
+  let forceSwitch=false, reacted=false;
+
+  /* ① 痛みスパイク → 強さダウン＆さすりで宥める */
+  if(tension>0.35){
+    tensionStreak+=dt;
+    if(intensity>1 && soothing<=0){
+      intensity--; soothing=3.0;
+      log(`痛みを検知 → 強さ${INTENSITY[intensity+1]}→${INTENSITY[intensity]}`,true);
+      setReco(`痛みのサインを検知。強さを下げ、「さすり」で一旦ほぐします。`,'alarm');
+      reacted=true;
+    }
+    method='stroke';
+    if(tensionStreak>4){ forceSwitch=true; tensionStreak=0; }   // 痛み続く→部位を変える
+  }else{
+    tensionStreak=Math.max(0,tensionStreak-dt);
+    soothing=Math.max(0,soothing-dt);
+    if(soothing<=0 && method==='stroke'){ method='knead'; }      // 落ち着いたら戻す
+  }
+
+  /* ② 高ぶりが継続 → しきい値を下げて早めに切替（過刺激回避） */
+  const arousalRising = arousalHist.length>20 &&
+        (arousalHist[arousalHist.length-1]-arousalHist[arousalHist.length-20])>0.12;
+  const effTh = arousalRising ? switchTh*0.7 : switchTh;
+  if(arousalRising && intensity>1 && Math.random()<0.04){
+    intensity--; log('交感神経の高ぶりが上昇 → 強さを抑制',true);
+  }
+
+  /* ③ 疲労が上限 → 最も休んでいる部位へ */
+  const now=performance.now();
+  if(activeZone.fatigue>=effTh || forceSwitch){
+    const cand=ZONES.filter(z=>z!==activeZone && z.coolUntil<now)
+                    .sort((a,b)=>a.fatigue-b.fatigue);
+    const next=cand[0]||ZONES.filter(z=>z!==activeZone).sort((a,b)=>a.fatigue-b.fatigue)[0];
+    const reason=forceSwitch?'痛みが続いた':'十分に刺激された';
+    switchTo(next,reason); intensity=Math.max(1,Math.min(2,intensity)); reacted=true;
+  }
+
+  /* もみ返しリスク：高負荷×高ぶりの累積 */
+  const overload=ZONES.reduce((a,z)=>a+Math.max(0,z.fatigue-switchTh),0)/100;
+  risk += (overload*4 + arousal*tension*8 + (tension>0.5?3:0)) * dt;
+  risk -= 1.2*dt;
+  risk=Math.min(100,Math.max(0,risk));
+
+  if(risk>80){
+    setReco('もみ返しリスクが高めです。強めの施術を控え、「さすり」でクールダウンを推奨。','alarm');
+    method='stroke'; intensity=1;
+  }else if(!reacted && tension<=0.35){
+    if(method==='knead' && activeZone.fatigue<switchTh*0.5 && intensity<2 && tension<0.1){
+      intensity=2; // 余裕があれば中へ
+    }
+    setReco(`「${activeZone.name}」を${METHODS[method]}（${INTENSITY[intensity]}）で施術中。快適に進行しています。`,
+            risk>50?'act':'');
+  }
+}
+</script>
+</body>
+</html>
