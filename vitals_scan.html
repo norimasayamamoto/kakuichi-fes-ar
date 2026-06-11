@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>顔色バイタルスキャナー</title>
+<style>
+  /* ============================================================
+     計測機器（コンソール）風デザイン
+     - 暗いスレート背景に細いグリッド、等幅の数値ディスプレイ
+     - 状態色: 正常=teal / 熱中症=amber / 蒼白・ショック=violet
+     ============================================================ */
+  :root{
+    --bg:#0c1016;
+    --panel:#121a24;
+    --panel-2:#0f1620;
+    --line:#22303f;
+    --ink:#e7eef5;
+    --ink-dim:#8aa0b4;
+    --ink-faint:#5b7185;
+    --mono:'SFMono-Regular',ui-monospace,'Menlo','Consolas',monospace;
+    --sans:-apple-system,'Hiragino Kaku Gothic ProN','Noto Sans JP',system-ui,sans-serif;
+    --teal:#39d6c4;
+    --amber:#ffb347;
+    --red:#ff5d6c;
+    --violet:#9b8cff;
+    --cyan:#5fd0ff;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  body{
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:44px 44px;
+    background-position:center;
+    background-attachment:fixed;
+    padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  .wrap{max-width:760px;margin:0 auto}
+
+  header{display:flex;align-items:baseline;gap:10px;padding:18px 2px 12px;flex-wrap:wrap}
+  header .mark{
+    font-family:var(--mono);font-size:11px;letter-spacing:.28em;color:var(--teal);
+    border:1px solid var(--teal);padding:3px 8px;border-radius:3px;text-transform:uppercase;
+  }
+  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.02em}
+  header .sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-left:auto;letter-spacing:.08em}
+
+  /* 免責 */
+  .disclaimer{
+    border:1px solid #5a3a1f;background:linear-gradient(180deg,#1d1408,#160f06);
+    color:#f4c98a;font-size:12px;line-height:1.6;border-radius:8px;padding:10px 12px;margin:6px 0 14px;
+  }
+  .disclaimer b{color:#ffd699}
+
+  /* 映像 */
+  .stage{
+    position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    background:#05080c;aspect-ratio:3/4;max-height:64vh;margin:0 auto;
+  }
+  @media(min-aspect-ratio:1/1){ .stage{aspect-ratio:4/3} }
+  .mirror{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+  video,canvas#overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  canvas#overlay{pointer-events:none}
+  .scanline{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:.5;animation:scan 3.2s linear infinite;z-index:3}
+  @keyframes scan{0%{top:4%}100%{top:96%}}
+  .badge-fps{position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;color:var(--ink-dim);background:#0009;padding:2px 6px;border-radius:4px;z-index:4;letter-spacing:.06em}
+  .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--ink-dim);font-size:13px;line-height:1.7;z-index:2}
+
+  /* 判定バナー */
+  .verdict{
+    margin:12px 0;border-radius:12px;border:1px solid var(--line);background:var(--panel);
+    padding:14px 16px;display:flex;align-items:center;gap:14px;transition:border-color .3s,background .3s;
+  }
+  .verdict .dot{width:14px;height:14px;border-radius:50%;flex:none;background:var(--ink-faint);box-shadow:0 0 0 0 transparent;transition:.3s}
+  .verdict .txt{flex:1;min-width:0}
+  .verdict .state{font-size:19px;font-weight:700;letter-spacing:.01em;line-height:1.2}
+  .verdict .note{font-size:12px;color:var(--ink-dim);margin-top:3px;font-family:var(--mono);letter-spacing:.04em}
+  .verdict .conf{font-family:var(--mono);font-size:11px;color:var(--ink-faint);text-align:right;flex:none}
+  .verdict .conf b{display:block;font-size:22px;color:var(--ink);line-height:1}
+  .v-normal{border-color:#1f6e63}.v-normal .dot{background:var(--teal);box-shadow:0 0 14px 2px #39d6c455}.v-normal .state{color:var(--teal)}
+  .v-heat{border-color:#7a5320}.v-heat .dot{background:var(--amber);box-shadow:0 0 14px 2px #ffb34755}.v-heat .state{color:var(--amber)}
+  .v-shock{border-color:#4f44a0}.v-shock .dot{background:var(--violet);box-shadow:0 0 14px 2px #9b8cff55}.v-shock .state{color:var(--violet)}
+  .v-idle .state{color:var(--ink-dim)}
+
+  /* 操作行 */
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px}
+  button{
+    font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink);
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:11px 14px;
+    cursor:pointer;flex:1;min-width:120px;transition:.15s;letter-spacing:.02em;
+  }
+  button:hover{border-color:var(--teal);color:var(--teal)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:linear-gradient(180deg,#15463f,#0f332e);border-color:#2a8576;color:#bdf6ec}
+  button.primary:hover{border-color:var(--teal)}
+  button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--ink-faint)}
+  button .k{font-family:var(--mono);font-size:10px;color:var(--ink-faint);display:block;margin-top:2px;letter-spacing:.1em}
+
+  /* キャリブ進捗 */
+  .calib{height:4px;background:#0a121a;border-radius:3px;overflow:hidden;margin:-8px 0 14px;border:1px solid var(--line);display:none}
+  .calib.on{display:block}
+  .calib i{display:block;height:100%;width:0;background:var(--teal);transition:width .1s linear}
+
+  /* メトリクス */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+  @media(min-width:520px){.grid{grid-template-columns:repeat(4,1fr)}}
+  .metric{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .metric .lbl{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.12em;text-transform:uppercase}
+  .metric .val{font-family:var(--mono);font-size:26px;font-weight:600;margin-top:5px;line-height:1;color:var(--ink)}
+  .metric .val small{font-size:12px;color:var(--ink-dim);font-weight:400;margin-left:2px}
+  .metric .delta{font-family:var(--mono);font-size:11px;margin-top:5px;color:var(--ink-dim)}
+  .up{color:var(--amber)!important}.down{color:var(--cyan)!important}
+
+  /* スパークライン */
+  .spark{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+  @media(max-width:460px){.spark{grid-template-columns:1fr}}
+  .spark .card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .spark .card .lbl{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.1em;display:flex;justify-content:space-between}
+  .spark canvas{width:100%;height:54px;display:block;margin-top:6px}
+
+  /* 判定マトリクス */
+  .matrix{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+  .matrix .head{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--ink-faint);padding:10px 12px;border-bottom:1px solid var(--line);text-transform:uppercase}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-family:var(--mono);font-size:10px;color:var(--ink-faint);font-weight:500;letter-spacing:.06em}
+  td:first-child{color:var(--ink-dim);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  .cell{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+  .cell.lit{color:var(--ink);font-weight:600}
+  .cell .pip{width:7px;height:7px;border-radius:50%;background:#2a3a49;flex:none}
+  .col-heat.lit .pip{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .col-shock.lit .pip{background:var(--violet);box-shadow:0 0 8px var(--violet)}
+  .col-normal.lit .pip{background:var(--teal);box-shadow:0 0 8px var(--teal)}
+
+  details{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin-bottom:14px}
+  summary{cursor:pointer;padding:11px 14px;font-size:12px;color:var(--ink-dim);font-family:var(--mono);letter-spacing:.06em;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:'▸ ';color:var(--teal)}
+  details[open] summary::before{content:'▾ '}
+  .det{padding:0 14px 14px;font-size:12px;line-height:1.8;color:var(--ink-dim)}
+  .det code{font-family:var(--mono);background:#0a121a;padding:1px 5px;border-radius:3px;color:var(--cyan);font-size:11px}
+  .det b{color:var(--ink)}
+
+  footer{text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.1em;padding:8px 0}
+  .err{color:var(--red);font-size:12px;text-align:center;padding:8px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="mark">Vitals</span>
+    <h1>顔色バイタルスキャナー</h1>
+    <span class="sub">non-contact · on-device</span>
+  </header>
+
+  <div class="disclaimer">
+    <b>これは医療機器ではありません。</b>顔色・脈波の推定値は参考情報であり、診断ではありません。
+    めまい・吐き気・頭痛・けいれん・意識のもうろうなど熱中症が疑われる症状があるときは、画面の表示にかかわらず
+    <b>涼しい場所へ移動・水分塩分補給を行い、重症が疑われる場合はためらわず119番</b>に連絡してください。
+  </div>
+
+  <div class="stage">
+    <div class="mirror">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="scanline" id="scanline" style="display:none"></div>
+    <div class="badge-fps" id="fps">-- fps</div>
+    <div class="hint" id="hint">「計測開始」を押してカメラを許可してください。<br>明るい一定光のもとで、顔を正面に向けて静止します。</div>
+  </div>
+
+  <div class="verdict v-idle" id="verdict">
+    <span class="dot"></span>
+    <div class="txt">
+      <div class="state" id="vState">待機中</div>
+      <div class="note" id="vNote">カメラ未起動</div>
+    </div>
+    <div class="conf"><b id="vConf">--</b>conf%</div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="btnStart">計測開始<span class="k">START CAMERA</span></button>
+    <button id="btnCalib" disabled>基準を登録<span class="k">CALIBRATE 5s</span></button>
+    <button id="btnReset" disabled>基準クリア<span class="k">RESET BASELINE</span></button>
+  </div>
+  <div class="calib" id="calibBar"><i></i></div>
+
+  <div class="grid">
+    <div class="metric"><div class="lbl">心拍 rPPG</div><div class="val"><span id="mHr">--</span><small>bpm</small></div><div class="delta" id="mHrQ">信号待ち</div></div>
+    <div class="metric"><div class="lbl">赤み a*</div><div class="val" id="mA">--</div><div class="delta" id="mAd">基準未登録</div></div>
+    <div class="metric"><div class="lbl">明度 L*</div><div class="val" id="mL">--</div><div class="delta" id="mLd">基準未登録</div></div>
+    <div class="metric"><div class="lbl">テカリ/発汗</div><div class="val"><span id="mSw">--</span><small>%</small></div><div class="delta" id="mEye">まばたき --</div></div>
+  </div>
+
+  <div class="spark">
+    <div class="card"><div class="lbl"><span>赤み a* 推移</span><span id="sparkAval">--</span></div><canvas id="sparkA"></canvas></div>
+    <div class="card"><div class="lbl"><span>心拍 推移</span><span id="sparkHval">-- bpm</span></div><canvas id="sparkH"></canvas></div>
+  </div>
+
+  <div class="matrix">
+    <div class="head">判定マトリクス — 該当する特徴が点灯します</div>
+    <table>
+      <thead><tr><th>解析項目</th><th>熱中症 初期〜中期</th><th>脱水・ショック</th><th>正常・疲労</th></tr></thead>
+      <tbody id="matrixBody"><!-- JSで生成 --></tbody>
+    </table>
+  </div>
+
+  <details>
+    <summary>解析のしくみ / オフライン化 / チューニング</summary>
+    <div class="det">
+      <p><b>① 色空間解析（Lab）</b>　額・頬のROIをRGB→CIE Labへ変換し、<code>a*</code>(赤み)と<code>L*</code>(明度)を抽出。基準（健康時）からの差分で個人差を吸収します。<br>
+      ・赤みが上昇 → 皮膚血管の拡張（熱放散）＝<b>熱中症の初期〜中期</b>の兆候。<br>
+      ・赤みが低下＋明度が上昇＋唇のa*低下 → 血の気が引く<b>蒼白／チアノーゼ</b>＝脱水・ショック側。</p>
+      <p><b>② ROI限定</b>　MediaPipe FaceLandmarkerで<b>額・両頬・唇</b>の座標を固定追跡。皮下脂肪が薄く毛細血管が多い部位に絞っています。</p>
+      <p><b>③ rPPG（非接触脈波）</b>　額・頬の<b>Green</b>平均値の微小な周期変動をバッファに蓄積し、0.7〜4Hz帯でFFT→ピーク周波数から心拍数を推定。頻脈はリスク側に加点します。</p>
+      <p><b>④ 動態</b>　額・鼻の<b>ハイライト率</b>から発汗（テカリ）、ブレンドシェイプから<b>まばたき・まぶたの下がり</b>を検出。</p>
+      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0">
+      <p><b>完全オフライン化</b>　顔解析と判定はすべて端末内で実行され、映像も数値も外部送信しません。初回のみMediaPipe本体をCDNから取得します。ネット遮断環境で使うには、<code>tasks-vision</code>のwasm一式と<code>face_landmarker.task</code>をGitHub Pagesに同梱し、下のファイル先頭の<code>WASM_PATH</code>/<code>MODEL_PATH</code>をローカルパスへ書き換えてください。</p>
+      <p><b>精度のコツ</b>　照明は一定の白色光、逆光を避ける／カメラから50〜60cm／計測前に「基準を登録」（安静・健康時の顔色を5秒記録）。閾値は先頭の<code>TH</code>定数で調整できます。</p>
+    </div>
+  </details>
+
+  <div class="err" id="err"></div>
+  <footer>KAKUICHI · ON-DEVICE FACE ANALYTICS · v1.0</footer>
+</div>
+
+<script type="module">
+/* ============================================================================
+   顔色バイタルスキャナー  v1.0  (single-file, on-device)
+   MediaPipe Tasks Vision FaceLandmarker → Lab色空間 + rPPG + 動態
+   ============================================================================ */
+
+import { FaceLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ---- オフライン化したい場合はここをローカルパスに ----------------------- */
+const WASM_PATH  = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL_PATH = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+
+/* ---- 判定閾値（基準からの差分・絶対値）。現場で調整可 -------------------- */
+const TH = {
+  aRedUp:    2.2,   // a* がこれ以上上がったら赤み(熱)
+  aPaleDown: 2.2,   // a* がこれ以上下がったら蒼白
+  lUp:       3.0,   // L* がこれ以上上がったら明るく(血の気引く)
+  lipDown:   3.0,   // 唇 a* がこれ以上下がったらチアノーゼ寄り
+  sweat:     0.10,  // ハイライト率 これ以上で発汗
+  hrHigh:    100,   // bpm これ以上で頻脈
+  hrVeryHigh:115,
+  blinkLow:  6,     // 1分あたりこれ未満で「まばたき減少」
+  eyeDroop:  0.34,  // ブレンドシェイプ eyeBlink 平常超過(下がり/閉じ気味)
+};
+
+/* ---- DOM ------------------------------------------------------------------ */
+const $ = s => document.querySelector(s);
+const video=$("#video"), overlay=$("#overlay"), octx=overlay.getContext("2d");
+const hint=$("#hint"), errEl=$("#err"), fpsEl=$("#fps"), scanline=$("#scanline");
+const btnStart=$("#btnStart"), btnCalib=$("#btnCalib"), btnReset=$("#btnReset");
+const calibBar=$("#calibBar"), calibFill=calibBar.querySelector("i");
+const verdict=$("#verdict"), vState=$("#vState"), vNote=$("#vNote"), vConf=$("#vConf");
+
+/* 処理用の小さなオフスクリーン（読取り高速化） */
+const proc=document.createElement("canvas"); proc.width=320; proc.height=240;
+const pctx=proc.getContext("2d",{willReadFrequently:true});
+
+/* ---- ランドマーク定義（FaceMesh 468 互換 index） -------------------------- */
+const LM = {
+  forehead:[10,151,9,8,107,336,69,299],   // 額（眉間〜生え際手前）
+  cheekL:[205,50,116,123,147],             // 左頬
+  cheekR:[425,280,345,352,376],            // 右頬
+  lip:[14,17,84,314,178,402],              // 下唇の肉部
+  nose:[1,4,19,94],                        // 鼻先（テカリ用）
+  // 目（EAR用）
+  eyeL:{top:159,bot:145,l:33,r:133},
+  eyeR:{top:386,bot:374,l:362,r:263},
+};
+
+/* ============================ ユーティリティ =============================== */
+// sRGB(0-255) → CIE Lab
+function rgb2lab(r,g,b){
+  r/=255; g/=255; b/=255;
+  r = r>0.04045 ? Math.pow((r+0.055)/1.055,2.4) : r/12.92;
+  g = g>0.04045 ? Math.pow((g+0.055)/1.055,2.4) : g/12.92;
+  b = b>0.04045 ? Math.pow((b+0.055)/1.055,2.4) : b/12.92;
+  let x=(r*0.4124+g*0.3576+b*0.1805)/0.95047;
+  let y=(r*0.2126+g*0.7152+b*0.0722)/1.0;
+  let z=(r*0.0193+g*0.1192+b*0.9505)/1.08883;
+  const f=t=> t>0.008856 ? Math.cbrt(t) : 7.787*t+16/116;
+  x=f(x); y=f(y); z=f(z);
+  return { L:116*y-16, a:500*(x-y), b:200*(y-z) };
+}
+
+// 指定ランドマーク群の重心まわりの小パッチをサンプリング（proc座標系）
+function sampleROI(lms, idxs, W, H, rad){
+  let cx=0, cy=0;
+  for(const i of idxs){ cx+=lms[i].x; cy+=lms[i].y; }
+  cx=cx/idxs.length*W; cy=cy/idxs.length*H;
+  const x0=Math.max(0,Math.round(cx-rad)), y0=Math.max(0,Math.round(cy-rad));
+  const x1=Math.min(W,Math.round(cx+rad)), y1=Math.min(H,Math.round(cy+rad));
+  const w=x1-x0, h=y1-y0;
+  if(w<2||h<2) return null;
+  const d=pctx.getImageData(x0,y0,w,h).data;
+  let R=0,G=0,B=0, hi=0, n=0;
+  for(let p=0;p<d.length;p+=4){
+    const r=d[p],g=d[p+1],b=d[p+2];
+    R+=r; G+=g; B+=b; n++;
+    // ハイライト判定: 明るく彩度低い → テカリ/発汗
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    const v=mx/255, sat=mx===0?0:(mx-mn)/mx;
+    if(v>0.78 && sat<0.22) hi++;
+  }
+  if(!n) return null;
+  return { R:R/n, G:G/n, B:B/n, hi:hi/n, cx, cy, box:[x0,y0,w,h] };
+}
+
+function eyeAR(lms,e,W,H){
+  const v=Math.hypot((lms[e.top].x-lms[e.bot].x)*W,(lms[e.top].y-lms[e.bot].y)*H);
+  const h=Math.hypot((lms[e.l].x-lms[e.r].x)*W,(lms[e.l].y-lms[e.r].y)*H);
+  return h>0? v/h : 0;
+}
+
+/* ---- 簡易FFT（Cooley-Tukey, 2の冪） -------------------------------------- */
+function fft(re,im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){
+    let bit=n>>1;
+    for(;j&bit;bit>>=1) j^=bit;
+    j^=bit;
+    if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}
+  }
+  for(let len=2;len<=n;len<<=1){
+    const ang=-2*Math.PI/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){
+      let cwr=1,cwi=0;
+      for(let k=0;k<len/2;k++){
+        const a=i+k, b=i+k+len/2;
+        const tr=re[b]*cwr-im[b]*cwi, ti=re[b]*cwi+im[b]*cwr;
+        re[b]=re[a]-tr; im[b]=im[a]-ti;
+        re[a]+=tr; im[a]+=ti;
+        const ncwr=cwr*wr-cwi*wi; cwi=cwr*wi+cwi*wr; cwr=ncwr;
+      }
+    }
+  }
+}
+
+/* ============================ 状態 ======================================== */
+let faceLandmarker=null, running=false, lastTs=-1;
+let baseline=null;                 // {aFace,lFace,lipA}
+let calibrating=false, calibStart=0, calibAcc=null;
+const PPG=[];                      // {t, g}
+let blinkTimes=[], blinkOpen=true;
+let hrSmooth=null;
+const sparkAhist=[], sparkHhist=[];
+let frames=0, fpsT=performance.now();
+
+/* 判定マトリクス行定義 */
+const MATRIX=[
+  {key:"color", label:"色相 a*/L*", heat:"赤み↑", shock:"蒼白・土気色", normal:"変化なし"},
+  {key:"lip",   label:"唇の色",     heat:"赤み",   shock:"青白・チアノーゼ", normal:"通常"},
+  {key:"hr",    label:"rPPG 心拍",  heat:"頻脈",   shock:"頻脈＋微弱",       normal:"安定"},
+  {key:"sweat", label:"テカリ",     heat:"大量発汗", shock:"乾燥/冷や汗",     normal:"通常"},
+  {key:"eye",   label:"まぶた",     heat:"変化なし", shock:"下がる/まばたき減", normal:"通常"},
+];
+function buildMatrix(){
+  const tb=$("#matrixBody");
+  tb.innerHTML=MATRIX.map(r=>`<tr data-k="${r.key}">
+    <td>${r.label}</td>
+    <td><span class="cell col-heat"><span class="pip"></span>${r.heat}</span></td>
+    <td><span class="cell col-shock"><span class="pip"></span>${r.shock}</span></td>
+    <td><span class="cell col-normal"><span class="pip"></span>${r.normal}</span></td>
+  </tr>`).join("");
+}
+function litMatrix(flags){ // flags[key] = 'heat'|'shock'|'normal'|null
+  for(const r of MATRIX){
+    const tr=$(`#matrixBody tr[data-k="${r.key}"]`); if(!tr) return;
+    tr.querySelectorAll(".cell").forEach(c=>c.classList.remove("lit"));
+    const f=flags[r.key];
+    if(f) tr.querySelector(".col-"+f)?.classList.add("lit");
+  }
+}
+buildMatrix();
+
+/* ============================ 起動 ======================================== */
+async function init(){
+  try{
+    hint.textContent="モデルを読み込み中…";
+    const fileset=await FilesetResolver.forVisionTasks(WASM_PATH);
+    faceLandmarker=await FaceLandmarker.createFromOptions(fileset,{
+      baseOptions:{ modelAssetPath:MODEL_PATH, delegate:"GPU" },
+      runningMode:"VIDEO", numFaces:1, outputFaceBlendshapes:true
+    });
+  }catch(e){
+    errEl.textContent="モデル読込エラー: "+e.message+"（CDN到達不可ならローカルパスをご利用ください）";
+    throw e;
+  }
+}
+
+async function startCamera(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:"user", width:{ideal:640}, height:{ideal:480} }, audio:false
+    });
+    video.srcObject=stream;
+    await video.play();
+    hint.style.display="none"; scanline.style.display="block";
+    btnCalib.disabled=false;
+    running=true;
+    loop();
+  }catch(e){
+    errEl.textContent="カメラを起動できません: "+e.message;
+  }
+}
+
+btnStart.addEventListener("click", async ()=>{
+  btnStart.disabled=true; btnStart.textContent="起動中…";
+  errEl.textContent="";
+  if(!faceLandmarker) await init();
+  await startCamera();
+  btnStart.textContent="計測中"; 
+});
+
+btnCalib.addEventListener("click", ()=>{
+  if(!running) return;
+  calibrating=true; calibStart=performance.now();
+  calibAcc={aFace:0,lFace:0,lipA:0,n:0};
+  calibBar.classList.add("on");
+});
+btnReset.addEventListener("click", ()=>{
+  baseline=null; btnReset.disabled=true;
+  $("#mAd").textContent="基準未登録"; $("#mLd").textContent="基準未登録";
+  setVerdict("idle","基準未登録","CALIBRATE で健康時を登録","--");
+});
+
+/* ============================ メインループ ================================= */
+function loop(){
+  if(!running) return;
+  const now=performance.now();
+  if(video.readyState>=2 && now!==lastTs){
+    lastTs=now;
+    // 縮小コピー
+    pctx.drawImage(video,0,0,proc.width,proc.height);
+    let res=null;
+    try{ res=faceLandmarker.detectForVideo(video, now); }catch(e){}
+    if(res && res.faceLandmarks && res.faceLandmarks[0]){
+      analyze(res.faceLandmarks[0], res.faceBlendshapes && res.faceBlendshapes[0], now);
+    }else{
+      octx.clearRect(0,0,overlay.width,overlay.height);
+    }
+  }
+  // fps
+  frames++;
+  if(now-fpsT>500){ fpsEl.textContent=Math.round(frames*1000/(now-fpsT))+" fps"; frames=0; fpsT=now; }
+  requestAnimationFrame(loop);
+}
+
+/* ============================ 解析 ======================================== */
+function analyze(lms, blend, now){
+  const W=proc.width, H=proc.height;
+  const fw=Math.hypot((lms[234].x-lms[454].x)*W,(lms[234].y-lms[454].y)*H); // 顔幅
+  const r=Math.max(5, fw*0.10);
+
+  const fore=sampleROI(lms,LM.forehead,W,H,r);
+  const chL =sampleROI(lms,LM.cheekL,W,H,r);
+  const chR =sampleROI(lms,LM.cheekR,W,H,r);
+  const lip =sampleROI(lms,LM.lip,W,H,r*0.55);
+  const nose=sampleROI(lms,LM.nose,W,H,r*0.6);
+  if(!fore||!chL||!chR||!lip){ return; }
+
+  // 顔（額＋両頬）の平均Lab
+  const labF=rgb2lab(fore.R,fore.G,fore.B);
+  const labL=rgb2lab(chL.R,chL.G,chL.B);
+  const labR=rgb2lab(chR.R,chR.G,chR.B);
+  const labLip=rgb2lab(lip.R,lip.G,lip.B);
+  const aFace=(labF.a+labL.a+labR.a)/3;
+  const lFace=(labF.L+labL.L+labR.L)/3;
+  const lipA=labLip.a;
+
+  // テカリ率（額＋鼻）
+  const sweat=Math.max(fore.hi, nose? nose.hi:0);
+
+  // rPPG: 額・頬のGreen平均
+  const g=(fore.G+chL.G+chR.G)/3;
+  PPG.push({t:now,g});
+  while(PPG.length && now-PPG[0].t>11000) PPG.shift();
+  const hr=estimateHR();
+
+  // まばたき（ブレンドシェイプ優先, なければEAR）
+  let blinkVal=0;
+  if(blend){
+    const bl=blend.categories.find(c=>c.categoryName==="eyeBlinkLeft");
+    const br=blend.categories.find(c=>c.categoryName==="eyeBlinkRight");
+    if(bl&&br) blinkVal=(bl.score+br.score)/2;
+  }
+  if(!blinkVal){
+    const ear=(eyeAR(lms,LM.eyeL,W,H)+eyeAR(lms,LM.eyeR,W,H))/2;
+    blinkVal=ear<0.18?0.8:0.1;
+  }
+  // まばたき回数カウント
+  if(blinkVal>0.5 && blinkOpen){ blinkTimes.push(now); blinkOpen=false; }
+  if(blinkVal<0.3) blinkOpen=true;
+  while(blinkTimes.length && now-blinkTimes[0]>60000) blinkTimes.shift();
+  const blinkRate=blinkTimes.length; // 直近1分の回数（概算）
+  const eyeDroop=blinkVal>TH.eyeDroop; // 半閉じ/下がり
+
+  // ---- キャリブレーション ----
+  if(calibrating){
+    calibAcc.aFace+=aFace; calibAcc.lFace+=lFace; calibAcc.lipA+=lipA; calibAcc.n++;
+    const p=Math.min(1,(now-calibStart)/5000);
+    calibFill.style.width=(p*100)+"%";
+    if(p>=1){
+      baseline={ aFace:calibAcc.aFace/calibAcc.n, lFace:calibAcc.lFace/calibAcc.n, lipA:calibAcc.lipA/calibAcc.n };
+      calibrating=false; calibBar.classList.remove("on"); calibFill.style.width="0";
+      btnReset.disabled=false;
+    }
+  }
+
+  drawOverlay([fore,chL,chR,lip], lms);
+  updateMetrics({aFace,lFace,lipA,hr,sweat,blinkRate,blinkVal});
+  classify({aFace,lFace,lipA,hr,sweat,blinkRate,eyeDroop});
+}
+
+/* rPPG: Green信号をデトレンド→Hann窓→FFT→0.7-4Hzピーク */
+function estimateHR(){
+  const N=PPG.length;
+  if(N<64) return null;
+  const span=(PPG[N-1].t-PPG[0].t)/1000;
+  if(span<5) return null;
+  const fs=N/span;                 // 実効サンプリング周波数
+  // 等間隔リサンプル不要の近似: そのまま使う
+  let M=1; while(M*2<=N) M*=2;     // 2の冪に切詰め
+  const seg=PPG.slice(N-M);
+  // デトレンド(線形)
+  let mean=0; for(const s of seg) mean+=s.g; mean/=M;
+  const re=new Array(M), im=new Array(M).fill(0);
+  for(let i=0;i<M;i++){
+    const w=0.5-0.5*Math.cos(2*Math.PI*i/(M-1)); // Hann
+    re[i]=(seg[i].g-mean)*w;
+  }
+  fft(re,im);
+  let bestK=-1,bestMag=0;
+  for(let k=1;k<M/2;k++){
+    const f=k*fs/M;
+    if(f<0.7||f>4.0) continue;     // 42〜240 bpm
+    const mag=re[k]*re[k]+im[k]*im[k];
+    if(mag>bestMag){ bestMag=mag; bestK=k; }
+  }
+  if(bestK<0) return null;
+  const bpm=bestK*fs/M*60;
+  hrSmooth = hrSmooth==null ? bpm : hrSmooth*0.8+bpm*0.2; // 平滑
+  return hrSmooth;
+}
+
+/* ---- オーバーレイ描画 ---- */
+function drawOverlay(rois, lms){
+  // overlay解像度を映像に合わせる
+  if(overlay.width!==video.videoWidth){ overlay.width=video.videoWidth; overlay.height=video.videoHeight; }
+  const sx=overlay.width/proc.width, sy=overlay.height/proc.height;
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  octx.lineWidth=Math.max(1.5,overlay.width/360);
+  const labels=["額","頬","頬","唇"];
+  rois.forEach((roi,i)=>{
+    if(!roi) return;
+    const [x,y,w,h]=roi.box;
+    octx.strokeStyle="rgba(57,214,196,.9)";
+    octx.strokeRect(x*sx,y*sy,w*sx,h*sy);
+    octx.fillStyle="rgba(57,214,196,.9)";
+    octx.font=`${Math.round(overlay.width/34)}px monospace`;
+    octx.save(); octx.scale(-1,1); // ラベルは反転戻し（CSSミラー対策）
+    octx.fillText(labels[i], -(x*sx)-w*sx, y*sy-4);
+    octx.restore();
+  });
+}
+
+/* ---- メトリクス表示 ---- */
+function updateMetrics(d){
+  $("#mHr").textContent = d.hr? Math.round(d.hr) : "--";
+  $("#mHrQ").textContent = d.hr? (d.hr>=TH.hrHigh?"頻脈ぎみ":"信号OK") : "信号待ち";
+  $("#mHrQ").className="delta"+(d.hr&&d.hr>=TH.hrHigh?" up":"");
+
+  $("#mA").textContent=d.aFace.toFixed(1);
+  $("#mL").textContent=d.lFace.toFixed(1);
+  $("#mSw").textContent=Math.round(d.sweat*100);
+  $("#mEye").textContent="まばたき "+d.blinkRate+"/分";
+
+  if(baseline){
+    const da=d.aFace-baseline.aFace, dl=d.lFace-baseline.lFace;
+    const ad=$("#mAd"), ld=$("#mLd");
+    ad.textContent=(da>=0?"+":"")+da.toFixed(1)+" 基準比";
+    ad.className="delta "+(da>=TH.aRedUp?"up":da<=-TH.aPaleDown?"down":"");
+    ld.textContent=(dl>=0?"+":"")+dl.toFixed(1)+" 基準比";
+    ld.className="delta "+(dl>=TH.lUp?"down":"");
+  }
+
+  // スパークライン
+  sparkAhist.push(d.aFace); if(sparkAhist.length>120) sparkAhist.shift();
+  if(d.hr){ sparkHhist.push(d.hr); if(sparkHhist.length>120) sparkHhist.shift(); }
+  drawSpark($("#sparkA"), sparkAhist, "#ffb347");
+  drawSpark($("#sparkH"), sparkHhist, "#5fd0ff");
+  $("#sparkAval").textContent=d.aFace.toFixed(1);
+  $("#sparkHval").textContent=(d.hr?Math.round(d.hr):"--")+" bpm";
+}
+
+function drawSpark(cv,arr,col){
+  const dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth, h=54;
+  if(cv.width!==w*dpr){ cv.width=w*dpr; cv.height=h*dpr; }
+  const c=cv.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,w,h);
+  if(arr.length<2) return;
+  let mn=Math.min(...arr), mx=Math.max(...arr); if(mx-mn<1e-3){mx+=1;mn-=1;}
+  c.beginPath();
+  arr.forEach((v,i)=>{
+    const x=i/(arr.length-1)*w, y=h-6-(v-mn)/(mx-mn)*(h-12);
+    i?c.lineTo(x,y):c.moveTo(x,y);
+  });
+  c.strokeStyle=col; c.lineWidth=1.6; c.lineJoin="round"; c.stroke();
+}
+
+/* ============================ 判定 ======================================== */
+function classify(d){
+  if(!baseline){
+    setVerdict("idle","基準未登録","「基準を登録」で健康時を5秒記録","--");
+    litMatrix({});
+    return;
+  }
+  const da=d.aFace-baseline.aFace;       // 赤み変化(+赤 / -蒼白)
+  const dl=d.lFace-baseline.lFace;       // 明度変化(+明るい)
+  const dlip=d.lipA-baseline.lipA;       // 唇の赤み変化
+
+  // スコアリング
+  let heat=0, shock=0, normal=0;
+  const flags={};
+
+  // 色相
+  if(da>=TH.aRedUp){ heat+=2; flags.color="heat"; }
+  else if(da<=-TH.aPaleDown || dl>=TH.lUp){ shock+=2; flags.color="shock"; }
+  else { normal+=1; flags.color="normal"; }
+
+  // 唇
+  if(dlip<=-TH.lipDown){ shock+=2; flags.lip="shock"; }
+  else if(dlip>=TH.aRedUp){ heat+=1; flags.lip="heat"; }
+  else { normal+=1; flags.lip="normal"; }
+
+  // 心拍
+  if(d.hr){
+    if(d.hr>=TH.hrVeryHigh){ shock+=1; heat+=1; flags.hr = da<0?"shock":"heat"; }
+    else if(d.hr>=TH.hrHigh){ heat+=1; flags.hr="heat"; }
+    else { normal+=1; flags.hr="normal"; }
+  }
+
+  // テカリ/発汗
+  if(d.sweat>=TH.sweat){ heat+=2; flags.sweat="heat"; }
+  else if(d.sweat<TH.sweat*0.4 && (da<=-1||dl>=1)){ shock+=1; flags.sweat="shock"; }
+  else { normal+=1; flags.sweat="normal"; }
+
+  // まぶた
+  if(d.eyeDroop || d.blinkRate<TH.blinkLow){ shock+=1; flags.eye="shock"; }
+  else { normal+=1; flags.eye="normal"; }
+
+  litMatrix(flags);
+
+  // 勝者と確信度
+  const total=heat+shock+normal||1;
+  const arr=[["heat",heat],["shock",shock],["normal",normal]].sort((a,b)=>b[1]-a[1]);
+  const [win,wScore]=arr[0];
+  const conf=Math.round(wScore/total*100);
+
+  if(win==="heat" && heat>=3){
+    setVerdict("heat","熱中症の初期〜中期の傾向","赤み↑・発汗・脈拍上昇 / 涼所と水分塩分を", conf);
+  }else if(win==="shock" && shock>=3){
+    setVerdict("shock","蒼白・脱水/ショック側の傾向","血の気↓・明度↑ / 重い症状なら迷わず119番", conf);
+  }else{
+    setVerdict("normal","正常〜疲労の範囲","基準からの大きな逸脱なし", Math.max(conf, 50));
+  }
+}
+
+function setVerdict(cls,state,note,conf){
+  verdict.className="verdict v-"+cls;
+  vState.textContent=state; vNote.textContent=note;
+  vConf.textContent = conf==null?"--":conf;
+}
+
+/* 初期表示 */
+setVerdict("idle","待機中","カメラ未起動","--");
+</script>
+</body>
+</html>
