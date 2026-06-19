@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>流速カメラ計測 — バー横断速度メーター</title>
+<style>
+  :root{
+    --bg:#0b0e11;
+    --panel:#13181d;
+    --panel-2:#181f25;
+    --line:#28313a;
+    --line-soft:#1d242b;
+    --ink:#e7eef4;
+    --muted:#7f8d98;
+    --muted-2:#5d6973;
+    --signal:#33e6a0;      /* live reading */
+    --signal-dim:#1c5a45;
+    --amber:#ffb454;       /* secondary readout */
+    --red:#ff5d62;
+    --mono:"SF Mono","Roboto Mono","DejaVu Sans Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    display:flex;flex-direction:column;min-height:100dvh;
+    overscroll-behavior:none;
+  }
+  header{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 16px;border-bottom:1px solid var(--line-soft);
+  }
+  header .mark{
+    width:14px;height:14px;border-radius:2px;flex:none;
+    background:var(--muted-2);transition:background .2s,box-shadow .2s;
+  }
+  header.live .mark{background:var(--signal);box-shadow:0 0 12px var(--signal);}
+  header .title{font-size:14px;font-weight:600;letter-spacing:.02em;}
+  header .sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;letter-spacing:.04em;}
+
+  /* ---- camera stage ---- */
+  .stage{position:relative;background:#000;overflow:hidden;flex:none;}
+  .stage video{display:block;width:100%;height:auto;background:#000;}
+  .stage canvas.overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+  .stage .tap-layer{position:absolute;inset:0;display:none;cursor:crosshair;}
+  .stage.calibrating .tap-layer{display:block;}
+  .cam-msg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:24px;color:var(--muted);font-size:13px;line-height:1.7;
+  }
+  .cam-msg b{color:var(--ink);font-weight:600;}
+
+  /* ---- readout ---- */
+  .readout{padding:14px 16px 4px;}
+  .big{
+    display:flex;align-items:baseline;gap:10px;font-family:var(--mono);
+  }
+  .big .val{
+    font-size:clamp(46px,16vw,72px);font-weight:600;line-height:.9;
+    letter-spacing:-.02em;color:var(--signal);font-variant-numeric:tabular-nums;
+    transition:color .2s;
+  }
+  .big.idle .val{color:var(--muted-2);}
+  .big .unit{font-size:18px;color:var(--muted);font-weight:500;letter-spacing:.02em;}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
+  .chip{
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+    border:1px solid var(--line);background:var(--panel);
+    padding:5px 9px;border-radius:6px;color:var(--muted);
+    display:flex;gap:6px;align-items:center;font-variant-numeric:tabular-nums;
+  }
+  .chip b{color:var(--ink);font-weight:600;}
+  .chip.dir{min-width:96px;}
+  .chip.dir .arrow{color:var(--signal);font-weight:700;}
+  .conf{display:inline-flex;gap:3px;}
+  .conf i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block;}
+  .conf i.on{background:var(--signal);box-shadow:0 0 6px var(--signal);}
+
+  /* ---- stats + graph ---- */
+  .stats{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+    background:var(--line-soft);border-top:1px solid var(--line-soft);
+    border-bottom:1px solid var(--line-soft);margin-top:12px;
+  }
+  .stats .cell{background:var(--bg);padding:10px 14px;}
+  .stats .k{font-size:10px;color:var(--muted-2);letter-spacing:.08em;text-transform:uppercase;}
+  .stats .v{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums;}
+  .stats .v small{font-size:11px;color:var(--muted);font-weight:400;margin-left:3px;}
+  .graph-wrap{padding:10px 16px 0;}
+  canvas#graph{width:100%;height:64px;display:block;}
+
+  /* ---- controls ---- */
+  .controls{padding:14px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px;}
+  .row{display:flex;gap:10px;}
+  button.btn{
+    flex:1;font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    padding:13px 10px;display:flex;align-items:center;justify-content:center;gap:7px;
+    transition:background .15s,border-color .15s,transform .05s;
+  }
+  button.btn:active{transform:translateY(1px);}
+  button.btn.primary{background:var(--signal-dim);border-color:var(--signal);color:#dffff2;}
+  header.live ~ * button.btn.primary{background:#3a2326;border-color:var(--red);color:#ffe2e2;}
+  button.btn.sub{flex:none;padding:13px 14px;color:var(--muted);font-weight:500;}
+  button.btn:disabled{opacity:.4;}
+
+  details.panel{border:1px solid var(--line-soft);border-radius:9px;background:var(--panel);overflow:hidden;}
+  details.panel>summary{
+    list-style:none;cursor:pointer;padding:12px 14px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;gap:8px;color:var(--ink);
+  }
+  details.panel>summary::-webkit-details-marker{display:none;}
+  details.panel>summary .tw{margin-left:auto;color:var(--muted);font-family:var(--mono);font-size:11px;transition:transform .2s;}
+  details.panel[open]>summary .tw{transform:rotate(90deg);}
+  .panel-body{padding:4px 14px 14px;display:flex;flex-direction:column;gap:14px;}
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;}
+  .field label b{color:var(--signal);font-family:var(--mono);font-weight:600;}
+  input[type=range]{width:100%;accent-color:var(--signal);}
+  input[type=number]{
+    background:var(--bg);border:1px solid var(--line);border-radius:7px;color:var(--ink);
+    font-family:var(--mono);font-size:15px;padding:9px 10px;width:100%;
+  }
+  .inline{display:flex;gap:8px;align-items:flex-end;}
+  .inline .field{flex:1;}
+  .hint{font-size:11px;color:var(--muted-2);line-height:1.6;}
+
+  /* calibration banner */
+  .calib-bar{
+    position:absolute;left:0;right:0;bottom:0;padding:12px 14px;
+    background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.0));
+    display:none;flex-direction:column;gap:8px;
+  }
+  .stage.calibrating .calib-bar{display:flex;}
+  .calib-bar .txt{font-size:12px;color:#dffff2;}
+  .calib-bar .ctl{display:flex;gap:8px;align-items:center;}
+  .calib-bar input{flex:none;width:120px;}
+  .calib-bar button{
+    font-family:var(--sans);font-size:13px;font-weight:600;border-radius:7px;padding:9px 12px;border:1px solid var(--signal);
+    background:var(--signal-dim);color:#dffff2;
+  }
+  .calib-bar button.ghost{background:transparent;border-color:var(--line);color:var(--muted);}
+</style>
+</head>
+<body>
+<header id="hdr">
+  <span class="mark"></span>
+  <span class="title">流速カメラ計測</span>
+  <span class="sub" id="fpsLabel">-- fps</span>
+</header>
+
+<div class="stage" id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas class="overlay" id="overlay"></canvas>
+  <div class="tap-layer" id="tapLayer"></div>
+  <div class="cam-msg" id="camMsg">
+    <div><b>計測開始</b>を押すとカメラが起動します。<br>
+    棒状の物が<b>右→左</b>に横切るようにカメラを向けてください。<br>
+    <span style="color:var(--muted-2);font-size:12px;">※ iPhone/Android はHTTPS（またはローカル）環境が必要です</span></div>
+  </div>
+  <div class="calib-bar" id="calibBar">
+    <div class="txt" id="calibTxt">基準となる2点をタップしてください（例：定規の0と100mm）。</div>
+    <div class="ctl">
+      <input type="number" id="calibDist" placeholder="実距離" inputmode="decimal" step="any">
+      <select id="calibUnit" style="background:var(--bg);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-family:var(--mono);padding:9px 8px;">
+        <option value="1">mm</option>
+        <option value="10">cm</option>
+        <option value="1000">m</option>
+      </select>
+      <button id="calibApply">確定</button>
+      <button id="calibCancel" class="ghost">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="readout">
+  <div class="big idle" id="bigBox">
+    <span class="val" id="bigVal">--</span>
+    <span class="unit" id="bigUnit">px/s</span>
+  </div>
+  <div class="chips">
+    <div class="chip dir"><span class="arrow" id="dirArrow">·</span><span id="dirTxt">待機</span></div>
+    <div class="chip">確度 <span class="conf" id="conf"><i></i><i></i><i></i></span></div>
+    <div class="chip" id="chipMs">-- <b>m/s</b></div>
+    <div class="chip" id="chipMms">-- <b>mm/s</b></div>
+    <div class="chip" id="chipPx">-- <b>px/s</b></div>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="cell"><div class="k">平均</div><div class="v" id="stAvg">--<small id="stAvgU">px/s</small></div></div>
+  <div class="cell"><div class="k">最大</div><div class="v" id="stMax">--<small id="stMaxU">px/s</small></div></div>
+  <div class="cell"><div class="k">サンプル</div><div class="v" id="stN">0</div></div>
+</div>
+
+<div class="graph-wrap"><canvas id="graph"></canvas></div>
+
+<div class="controls">
+  <div class="row">
+    <button class="btn primary" id="btnStart">計測開始</button>
+    <button class="btn sub" id="btnCam" title="カメラ切替" disabled>⟳</button>
+    <button class="btn sub" id="btnReset" title="統計リセット">×</button>
+  </div>
+  <div class="row">
+    <button class="btn" id="btnCalib" disabled>キャリブレーション</button>
+    <button class="btn" id="btnRec" disabled>記録開始</button>
+    <button class="btn" id="btnCsv" disabled>CSV</button>
+  </div>
+
+  <details class="panel">
+    <summary>計測バンドと感度設定 <span class="tw">▸</span></summary>
+    <div class="panel-body">
+      <div class="field">
+        <label>バンド位置（縦） <b id="vRoiYr">50%</b></label>
+        <input type="range" id="roiY" min="10" max="90" value="50">
+      </div>
+      <div class="field">
+        <label>バンド高さ <b id="vRoiH">22%</b></label>
+        <input type="range" id="roiH" min="8" max="60" value="22">
+      </div>
+      <div class="field">
+        <label>最大検出速度（探索幅 px/フレーム） <b id="vMaxS">48</b></label>
+        <input type="range" id="maxS" min="8" max="90" value="48">
+        <div class="hint">速い対象で読み取れない時は上げてください（処理は重くなります）。</div>
+      </div>
+      <div class="field">
+        <label>応答（平滑化） <b id="vSmooth">0.30</b></label>
+        <input type="range" id="smooth" min="5" max="90" value="30">
+        <div class="hint">小さいほど滑らか、大きいほど即応。</div>
+      </div>
+      <div class="field">
+        <label>検出しきい値（確度） <b id="vThr">0.06</b></label>
+        <input type="range" id="thr" min="1" max="30" value="6">
+        <div class="hint">背景の揺れを拾う時は上げてください。</div>
+      </div>
+      <div class="inline">
+        <div class="field">
+          <label>手動校正：視野の横幅</label>
+          <input type="number" id="fovW" placeholder="例: 300" inputmode="decimal" step="any">
+        </div>
+        <div class="field" style="flex:none;width:84px;">
+          <label>単位</label>
+          <select id="fovU" style="background:var(--bg);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-family:var(--mono);padding:9px 8px;width:100%;">
+            <option value="1">mm</option><option value="10">cm</option><option value="1000">m</option>
+          </select>
+        </div>
+        <button class="btn" style="flex:none;padding:11px 14px;" id="fovApply">適用</button>
+      </div>
+      <div class="hint" id="calStatus">校正：未設定（px単位で表示中）。カメラに映る横幅全体の実寸を入れるか、画面で2点校正してください。</div>
+    </div>
+  </details>
+</div>
+
+<canvas id="proc" style="display:none;"></canvas>
+
+<script>
+(()=>{
+  "use strict";
+  const $=s=>document.querySelector(s);
+
+  // --- elements ---
+  const video=$("#video"), overlay=$("#overlay"), octx=overlay.getContext("2d");
+  const proc=$("#proc"), pctx=proc.getContext("2d",{willReadFrequently:true});
+  const stage=$("#stage"), hdr=$("#hdr"), camMsg=$("#camMsg");
+  const bigVal=$("#bigVal"), bigUnit=$("#bigUnit"), bigBox=$("#bigBox");
+  const dirArrow=$("#dirArrow"), dirTxt=$("#dirTxt"), confEl=$("#conf");
+  const chipMs=$("#chipMs"), chipMms=$("#chipMms"), chipPx=$("#chipPx");
+  const stAvg=$("#stAvg"), stMax=$("#stMax"), stN=$("#stN"), stAvgU=$("#stAvgU"), stMaxU=$("#stMaxU");
+  const fpsLabel=$("#fpsLabel"), graph=$("#graph"), gctx=graph.getContext("2d");
+  const btnStart=$("#btnStart"), btnCam=$("#btnCam"), btnReset=$("#btnReset");
+  const btnCalib=$("#btnCalib"), btnRec=$("#btnRec"), btnCsv=$("#btnCsv");
+  const calStatus=$("#calStatus");
+
+  // --- settings ---
+  const S={
+    roiY:0.50, roiH:0.22, maxS:48, smooth:0.30, thr:0.06,
+    mmPerPx:null,            // calibration (proc-pixel scale). null = uncalibrated
+    facing:"environment"
+  };
+  const PROC_W=320;          // processing width (downscaled)
+  const ROW_STEP=2;          // subsample rows in SAD
+
+  // --- state ---
+  let stream=null, running=false, procH=0, roiY0=0, roiH0=0;
+  let prevGray=null, lastT=0, fpsT=0, fps=0;
+  let pxPerSec=0, smoothPx=0, valid=false, conf=0;
+  let flowOffset=0;
+  let sum=0, cnt=0, maxAbs=0;
+  let recording=false, recRows=[], recTimer=0;
+  const hist=new Array(160).fill(null);
+
+  // ---------- camera ----------
+  async function start(){
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:S.facing}, width:{ideal:1280}, height:{ideal:720}},
+        audio:false
+      });
+    }catch(e){
+      camMsg.style.display="flex";
+      camMsg.innerHTML='<div><b style="color:var(--red)">カメラを起動できません</b><br>'+
+        'カメラの許可、またはHTTPS環境をご確認ください。<br><span style="color:var(--muted-2);font-size:12px;">'+(e&&e.message?e.message:e)+'</span></div>';
+      return false;
+    }
+    video.srcObject=stream;
+    await video.play().catch(()=>{});
+    await new Promise(r=>{ if(video.videoWidth) r(); else video.onloadedmetadata=()=>r(); });
+    procH=Math.round(PROC_W*video.videoHeight/video.videoWidth)||240;
+    proc.width=PROC_W; proc.height=procH;
+    camMsg.style.display="none";
+    sizeOverlay();
+    prevGray=null; running=true; lastT=performance.now(); fpsT=lastT;
+    hdr.classList.add("live");
+    btnStart.textContent="停止"; btnCam.disabled=false; btnCalib.disabled=false; btnRec.disabled=false;
+    requestAnimationFrame(loop);
+    return true;
+  }
+  function stop(){
+    running=false; hdr.classList.remove("live");
+    btnStart.textContent="計測開始"; btnCam.disabled=true; btnCalib.disabled=true; btnRec.disabled=true;
+    if(recording) toggleRec();
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    setBig(0,false); dirArrow.textContent="·"; dirTxt.textContent="待機"; setConf(0);
+  }
+  async function switchCam(){
+    S.facing = S.facing==="environment" ? "user" : "environment";
+    if(running){ if(stream) stream.getTracks().forEach(t=>t.stop()); await start(); }
+  }
+
+  // ---------- overlay sizing ----------
+  function sizeOverlay(){
+    const r=video.getBoundingClientRect();
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    overlay.width=Math.round(r.width*dpr); overlay.height=Math.round(r.height*dpr);
+    octx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener("resize",()=>{ if(running) sizeOverlay(); sizeGraph(); });
+
+  // ---------- processing loop ----------
+  function loop(now){
+    if(!running) return;
+    const dt=now-lastT; lastT=now;
+
+    pctx.drawImage(video,0,0,PROC_W,procH);
+    roiH0=Math.max(4,Math.round(procH*S.roiH));
+    roiY0=Math.min(procH-roiH0,Math.max(0,Math.round(procH*S.roiY-roiH0/2)));
+    const img=pctx.getImageData(0,roiY0,PROC_W,roiH0).data;
+
+    // grayscale
+    const N=PROC_W*roiH0, gray=new Uint8Array(N);
+    let mean=0;
+    for(let i=0,p=0;i<N;i++,p+=4){
+      const g=(img[p]*0.299+img[p+1]*0.587+img[p+2]*0.114)|0;
+      gray[i]=g; mean+=g;
+    }
+    mean/=N;
+    // texture (variance) — low texture => unreliable
+    let varc=0;
+    for(let i=0;i<N;i+=4){ const d=gray[i]-mean; varc+=d*d; }
+    varc/=(N/4);
+
+    if(prevGray && prevGray.length===N && dt>0){
+      const res=bestShift(gray,prevGray,PROC_W,roiH0,S.maxS);
+      // res.shift>0 => content moved LEFT (right-to-left). res.contrast = depth of minimum.
+      const moved=Math.abs(res.shift)>0.3;
+      const textured=varc>22;                 // enough detail in band
+      valid = moved && textured && res.contrast>=S.thr;
+      const inst = valid ? res.shift*(1000/dt) : 0;   // px/s, +=left
+      // smoothing
+      smoothPx = valid ? smoothPx+(inst-smoothPx)*S.smooth : smoothPx*0.8;
+      if(Math.abs(smoothPx)<1.5 && !valid) smoothPx=0;
+      pxPerSec=smoothPx; conf=valid?clamp01((res.contrast-S.thr)/0.25):0;
+
+      if(valid){ const a=Math.abs(pxPerSec); sum+=a; cnt++; if(a>maxAbs)maxAbs=a; }
+      updateReadout();
+      pushHist(valid?pxPerSec:null);
+      if(recording && valid) maybeRecord(now);
+    }
+    prevGray=gray;
+
+    // fps
+    fps=fps?fps*0.9+(1000/dt)*0.1:1000/dt;
+    if(now-fpsT>400){ fpsLabel.textContent=Math.round(fps)+" fps"; fpsT=now; }
+
+    drawOverlay(dt);
+    drawGraph();
+    requestAnimationFrame(loop);
+  }
+
+  // SAD over horizontal shifts; +shift => I_t(x) matches I_{t-1}(x+shift) => leftward motion
+  function bestShift(cur,prev,w,h,maxS){
+    let bestS=0,bestV=Infinity,sumV=0,k=0;
+    const vals=new Float32Array(2*maxS+1);
+    for(let s=-maxS;s<=maxS;s++){
+      const xa=Math.max(0,-s), xb=Math.min(w,w-s);
+      let acc=0,c=0;
+      for(let y=0;y<h;y+=ROW_STEP){
+        const off=y*w;
+        for(let x=xa;x<xb;x++){ acc+=Math.abs(cur[off+x]-prev[off+x+s]); c++; }
+      }
+      const v=c?acc/c:1e9; vals[s+maxS]=v; sumV+=v; k++;
+      if(v<bestV){bestV=v;bestS=s;}
+    }
+    const meanV=sumV/k;
+    // sub-pixel parabolic refine
+    let shift=bestS;
+    const idx=bestS+maxS;
+    if(idx>0&&idx<vals.length-1){
+      const a=vals[idx-1],b=vals[idx],cc=vals[idx+1],den=(a-2*b+cc);
+      if(Math.abs(den)>1e-6){ const d=0.5*(a-cc)/den; if(d>-1&&d<1) shift=bestS+d; }
+    }
+    const contrast=meanV>1e-6?(meanV-bestV)/meanV:0;
+    return {shift,contrast};
+  }
+  const clamp01=v=>v<0?0:v>1?1:v;
+
+  // ---------- units ----------
+  function fmt(v,d){ if(!isFinite(v))return"--"; const n=Math.abs(v); return (d===0?Math.round(n):n.toFixed(d)); }
+  function units(pxs){
+    const out={px:pxs};
+    if(S.mmPerPx){ const mms=pxs*S.mmPerPx; out.mms=mms; out.ms=mms/1000; out.mmin=mms/1000*60; }
+    return out;
+  }
+  function setBig(pxs,isValid){
+    const u=units(pxs);
+    if(S.mmPerPx){
+      bigVal.textContent=isValid?fmt(u.mmin,1):"--";
+      bigUnit.textContent="m/min";
+    }else{
+      bigVal.textContent=isValid?fmt(u.px,0):"--";
+      bigUnit.textContent="px/s";
+    }
+    bigBox.classList.toggle("idle",!isValid);
+  }
+  function updateReadout(){
+    const u=units(pxPerSec);
+    setBig(pxPerSec,valid);
+    chipPx.innerHTML=fmt(u.px,0)+' <b>px/s</b>';
+    if(S.mmPerPx){
+      chipMs.innerHTML=fmt(u.ms,3)+' <b>m/s</b>'; chipMms.innerHTML=fmt(u.mms,0)+' <b>mm/s</b>';
+      chipMs.style.display=""; chipMms.style.display="";
+    }else{ chipMs.style.display="none"; chipMms.style.display="none"; }
+
+    // direction
+    if(valid && Math.abs(pxPerSec)>1.5){
+      if(pxPerSec>0){ dirArrow.textContent="←"; dirTxt.textContent="右→左"; dirArrow.style.color="var(--signal)"; }
+      else{ dirArrow.textContent="→"; dirTxt.textContent="左→右"; dirArrow.style.color="var(--amber)"; }
+    }else{ dirArrow.textContent="·"; dirTxt.textContent="待機"; dirArrow.style.color="var(--muted-2)"; }
+    setConf(valid?Math.ceil(conf*3):0);
+
+    // stats
+    const avg=cnt?sum/cnt:0, ua=units(avg), um=units(maxAbs);
+    if(S.mmPerPx){
+      stAvg.innerHTML=(cnt?fmt(ua.mmin,1):"--")+'<small>m/min</small>';
+      stMax.innerHTML=(maxAbs?fmt(um.mmin,1):"--")+'<small>m/min</small>';
+    }else{
+      stAvg.innerHTML=(cnt?fmt(ua.px,0):"--")+'<small>px/s</small>';
+      stMax.innerHTML=(maxAbs?fmt(um.px,0):"--")+'<small>px/s</small>';
+    }
+    stN.textContent=cnt;
+  }
+  function setConf(n){ confEl.querySelectorAll("i").forEach((el,i)=>el.classList.toggle("on",i<n)); }
+
+  // ---------- overlay drawing ----------
+  function drawOverlay(dt){
+    const W=overlay.width/(window.devicePixelRatio||1), H=overlay.height/(window.devicePixelRatio||1);
+    octx.clearRect(0,0,W,H);
+    const top=H*(roiY0/procH), bh=H*(roiH0/procH);
+    // band fill + borders
+    octx.fillStyle="rgba(51,230,160,0.07)";
+    octx.fillRect(0,top,W,bh);
+    octx.strokeStyle="rgba(51,230,160,0.55)"; octx.lineWidth=1.5;
+    octx.beginPath(); octx.moveTo(0,top); octx.lineTo(W,top); octx.moveTo(0,top+bh); octx.lineTo(W,top+bh); octx.stroke();
+
+    // gauge ticks (calibrated spacing if available)
+    octx.strokeStyle="rgba(231,238,244,0.18)"; octx.lineWidth=1;
+    let tickPx;
+    if(S.mmPerPx){
+      const dispPerProc=W/PROC_W; // display px per proc px
+      // choose a "nice" real spacing close to 60 display px
+      const targetReal=(60/dispPerProc)*S.mmPerPx; // mm
+      const nice=niceStep(targetReal); tickPx=(nice/S.mmPerPx)*dispPerProc;
+      octx.fillStyle="rgba(231,238,244,0.45)"; octx.font="10px "+getMono();
+      for(let x=0,i=0;x<=W;x+=tickPx,i++){
+        octx.beginPath(); octx.moveTo(x,top); octx.lineTo(x,top+ (i%5===0?12:7)); octx.stroke();
+        if(i%5===0) octx.fillText(labelReal(nice*i),x+2,top+22);
+      }
+    }else{
+      tickPx=W/12;
+      for(let x=0;x<=W;x+=tickPx){ octx.beginPath(); octx.moveTo(x,top); octx.lineTo(x,top+7); octx.stroke(); }
+    }
+
+    // flow chevrons drifting at measured speed (visual feedback)
+    const dispSpeed = pxPerSec*(W/PROC_W); // display px/s, +=left
+    flowOffset += dispSpeed*(dt/1000);
+    const span=46;
+    flowOffset=((flowOffset%span)+span)%span;
+    octx.strokeStyle = valid ? "rgba(51,230,160,0.85)" : "rgba(127,141,152,0.3)";
+    octx.lineWidth=2.5; const cy=top+bh/2, s=8;
+    for(let x=-span; x<W+span; x+=span){
+      const px = pxPerSec>=0 ? x - flowOffset : x + flowOffset;
+      const d = pxPerSec>=0 ? 1 : -1; // chevron points in motion direction
+      octx.beginPath();
+      octx.moveTo(px+ d*-s, cy-s); octx.lineTo(px + d*s, cy); octx.lineTo(px + d*-s, cy+s);
+      octx.stroke();
+    }
+  }
+  function niceStep(x){
+    const p=Math.pow(10,Math.floor(Math.log10(x))); const f=x/p;
+    const n=f<1.5?1:f<3?2:f<7?5:10; return n*p;
+  }
+  function labelReal(mm){
+    if(mm>=1000) return (mm/1000)+"m";
+    if(mm>=10 && mm%10===0) return (mm/10)+"cm";
+    return mm+"mm";
+  }
+  function getMono(){return getComputedStyle(document.documentElement).getPropertyValue('--mono');}
+
+  // ---------- graph ----------
+  function sizeGraph(){
+    const r=graph.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
+    graph.width=Math.round(r.width*dpr); graph.height=Math.round(64*dpr);
+    gctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  function pushHist(v){ hist.push(v); if(hist.length>160) hist.shift(); }
+  function drawGraph(){
+    const W=graph.width/(window.devicePixelRatio||1), H=graph.height/(window.devicePixelRatio||1);
+    gctx.clearRect(0,0,W,H);
+    gctx.strokeStyle="rgba(40,49,58,0.9)"; gctx.lineWidth=1;
+    gctx.beginPath(); gctx.moveTo(0,H/2); gctx.lineTo(W,H/2); gctx.stroke(); // zero line
+    let mx=1; for(const v of hist) if(v!=null) mx=Math.max(mx,Math.abs(v));
+    const step=W/(hist.length-1);
+    gctx.strokeStyle="var(--signal)"; gctx.lineWidth=1.6; gctx.beginPath();
+    let started=false;
+    hist.forEach((v,i)=>{
+      if(v==null){ started=false; return; }
+      const y=H/2 - (v/mx)*(H/2-4);
+      const x=i*step;
+      if(!started){ gctx.moveTo(x,y); started=true; } else gctx.lineTo(x,y);
+    });
+    gctx.stroke();
+  }
+
+  // ---------- calibration ----------
+  let calibPts=[];
+  function beginCalib(){
+    if(!running) return;
+    stage.classList.add("calibrating"); calibPts=[];
+    $("#calibTxt").textContent="基準となる2点をタップしてください（例：定規の0と100mm）。";
+  }
+  function endCalib(){ stage.classList.remove("calibrating"); calibPts=[]; redrawTapMarks(); }
+  $("#tapLayer").addEventListener("click",e=>{
+    if(calibPts.length>=2) calibPts=[];
+    const r=overlay.getBoundingClientRect();
+    calibPts.push({x:e.clientX-r.left,y:e.clientY-r.top});
+    redrawTapMarks();
+    $("#calibTxt").textContent = calibPts.length<2 ? "2点目をタップしてください。" : "2点間の実距離を入力して「確定」。";
+  });
+  function redrawTapMarks(){
+    // drawn over overlay each frame is cleared; draw a transient marker layer instead
+    tapMarks=calibPts.slice();
+  }
+  let tapMarks=[];
+  // overlay loop also paints tap marks:
+  const _drawOverlay=drawOverlay;
+  drawOverlay=function(dt){
+    _drawOverlay(dt);
+    if(stage.classList.contains("calibrating") && tapMarks.length){
+      const dpr=1;
+      octx.save();
+      octx.strokeStyle="var(--amber)"; octx.fillStyle="var(--amber)"; octx.lineWidth=2;
+      tapMarks.forEach((p,i)=>{
+        octx.beginPath(); octx.arc(p.x,p.y,6,0,7); octx.stroke();
+        octx.fillText((i+1),p.x+9,p.y+4);
+      });
+      if(tapMarks.length===2){
+        octx.beginPath(); octx.moveTo(tapMarks[0].x,tapMarks[0].y); octx.lineTo(tapMarks[1].x,tapMarks[1].y); octx.stroke();
+      }
+      octx.restore();
+    }
+  };
+  $("#calibApply").addEventListener("click",()=>{
+    const d=parseFloat($("#calibDist").value), mul=parseFloat($("#calibUnit").value);
+    if(calibPts.length<2 || !(d>0)){ $("#calibTxt").textContent="2点と実距離（>0）が必要です。"; return; }
+    const dx=calibPts[1].x-calibPts[0].x, dy=calibPts[1].y-calibPts[0].y;
+    const dispDist=Math.hypot(dx,dy);                       // display px
+    const procDist=dispDist*(PROC_W/(overlay.width/(window.devicePixelRatio||1)));
+    const realMM=d*mul;
+    S.mmPerPx=realMM/procDist;
+    setCalStatus();
+    endCalib();
+  });
+  $("#calibCancel").addEventListener("click",endCalib);
+
+  $("#fovApply").addEventListener("click",()=>{
+    const w=parseFloat($("#fovW").value), mul=parseFloat($("#fovU").value);
+    if(!(w>0)){ calStatus.textContent="視野横幅を正しく入力してください。"; return; }
+    S.mmPerPx=(w*mul)/PROC_W;   // full proc width = full camera width
+    setCalStatus();
+  });
+  function setCalStatus(){
+    if(S.mmPerPx){
+      const mmW=(S.mmPerPx*PROC_W);
+      calStatus.innerHTML="校正済み：<b style='color:var(--signal)'>"+S.mmPerPx.toFixed(4)+" mm/px</b>（視野横幅 ≈ "+labelReal(Math.round(mmW))+"）。m/min 表示中。";
+      stAvgU.textContent="m/min"; stMaxU.textContent="m/min";
+    }else{
+      calStatus.textContent="校正：未設定（px単位で表示中）。";
+    }
+  }
+
+  // ---------- recording ----------
+  function toggleRec(){
+    recording=!recording;
+    btnRec.textContent=recording?"記録停止":"記録開始";
+    btnRec.classList.toggle("primary",recording);
+    if(recording){ recRows=[]; recTimer=0; btnCsv.disabled=true; }
+    else { btnCsv.disabled=recRows.length===0; }
+  }
+  function maybeRecord(now){
+    if(now-recTimer<250) return; recTimer=now;
+    const u=units(pxPerSec);
+    recRows.push({
+      t:new Date().toISOString(),
+      px:pxPerSec.toFixed(1),
+      mms:u.mms!=null?u.mms.toFixed(1):"",
+      ms:u.ms!=null?u.ms.toFixed(4):"",
+      mmin:u.mmin!=null?u.mmin.toFixed(2):"",
+      dir:pxPerSec>=0?"R→L":"L→R",
+      conf:conf.toFixed(2)
+    });
+  }
+  function exportCsv(){
+    if(!recRows.length) return;
+    const head="timestamp,px_per_s,mm_per_s,m_per_s,m_per_min,direction,confidence\n";
+    const body=recRows.map(r=>[r.t,r.px,r.mms,r.ms,r.mmin,r.dir,r.conf].join(",")).join("\n");
+    const blob=new Blob([head+body],{type:"text/csv"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="flow_speed_"+new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")+".csv";
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }
+
+  // ---------- controls wiring ----------
+  btnStart.onclick=()=>{ running?stop():start(); };
+  btnCam.onclick=switchCam;
+  btnReset.onclick=()=>{ sum=0;cnt=0;maxAbs=0; hist.fill(null); updateReadout(); };
+  btnCalib.onclick=beginCalib;
+  btnRec.onclick=toggleRec;
+  btnCsv.onclick=exportCsv;
+
+  const bind=(id,key,fn,lab)=>{
+    const el=$(id); el.addEventListener("input",()=>{ const v=fn(+el.value); S[key]=v; if(lab)lab(v); });
+  };
+  bind("#roiY","roiY",v=>v/100,v=>$("#vRoiYr").textContent=Math.round(v*100)+"%");
+  bind("#roiH","roiH",v=>v/100,v=>$("#vRoiH").textContent=Math.round(v*100)+"%");
+  bind("#maxS","maxS",v=>v,v=>$("#vMaxS").textContent=v);
+  bind("#smooth","smooth",v=>v/100,v=>$("#vSmooth").textContent=(v/100).toFixed(2));
+  bind("#thr","thr",v=>v/100,v=>$("#vThr").textContent=(v/100).toFixed(2));
+
+  // init
+  sizeGraph(); setCalStatus(); drawGraph();
+})();
+</script>
+</body>
+</html>
