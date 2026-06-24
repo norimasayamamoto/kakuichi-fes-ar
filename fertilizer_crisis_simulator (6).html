@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>肥料危機シミュレーター</title>
+<style>
+:root {
+  --bg: #e8f4f8;
+  --s1: #ffffff;
+  --s2: #f0f8fc;
+  --s3: #dbeef7;
+  --acc: #0097a7;
+  --acc2: #e65100;
+  --acc3: #1565c0;
+  --acc4: #f57f17;
+  --danger: #d32f2f;
+  --warn: #e65100;
+  --ok: #2e7d32;
+  --t1: #0d2b3e;
+  --t2: #2c5f7a;
+  --t3: #7bafc4;
+  --bd: rgba(0,80,120,0.12);
+  --bda: rgba(0,151,167,0.3);
+  --r: 10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--t1);font-family:'Noto Sans JP',sans-serif;font-size:14px;min-height:100vh;overflow-x:hidden;}
+/* LAYOUT */
+.app{display:grid;grid-template-rows:52px 1fr;height:100vh;}
+.hdr{background:var(--s1);border-bottom:2px solid var(--bda);display:flex;align-items:center;justify-content:space-between;padding:0 20px;gap:12px;}
+.hdr-title{font-size:12px;color:var(--acc);letter-spacing:.06em;white-space:nowrap;}
+.hdr-title span{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--acc);margin-right:8px;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.body{display:grid;grid-template-columns:260px 1fr 320px;overflow:hidden;}
+/* SIDEBAR */
+.sidebar{background:var(--s1);border-right:1px solid var(--bd);overflow-y:auto;padding:12px;}
+.sidebar-label{font-size:10px;color:var(--t3);letter-spacing:.1em;text-transform:uppercase;padding:8px 4px 6px;border-bottom:1px solid var(--bd);margin-bottom:8px;}
+.country-btn{width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--t2);cursor:pointer;transition:all .15s;text-align:left;font-size:13px;}
+.country-btn:hover{background:var(--s3);color:var(--t1);}
+.country-btn.active{background:var(--s3);border-color:var(--bda);color:var(--acc);}
+.country-flag{font-size:18px;flex-shrink:0;}
+.country-name{flex:1;}
+.risk-pill{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700;flex-shrink:0;}
+.rp-c{background:rgba(211,47,47,.12);color:var(--danger);border:1px solid rgba(211,47,47,.4);}
+.rp-h{background:rgba(230,81,0,.12);color:var(--warn);border:1px solid rgba(230,81,0,.4);}
+.rp-m{background:rgba(21,101,192,.1);color:var(--acc3);border:1px solid rgba(21,101,192,.35);}
+.rp-l{background:rgba(46,125,50,.1);color:var(--ok);border:1px solid rgba(46,125,50,.35);}
+/* MAIN */
+.main{overflow-y:auto;padding:20px;}
+/* RIGHT PANEL */
+.rpanel{background:var(--s1);border-left:1px solid var(--bd);overflow-y:auto;padding:16px;}
+/* CARDS */
+.card{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);padding:14px;margin-bottom:12px;}
+.card-title{font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.card-title::after{content:'';flex:1;height:1px;background:var(--bd);}
+/* KPI STRIP */
+.kpi-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+.kpi{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;position:relative;overflow:hidden;}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.kpi.a1::before{background:var(--danger);}
+.kpi.a2::before{background:var(--warn);}
+.kpi.a3::before{background:var(--acc3);}
+.kpi.a4::before{background:var(--acc);}
+.kpi-label{font-size:10px;color:var(--t3);letter-spacing:.04em;margin-bottom:3px;}
+.kpi-val{font-size:20px;font-weight:700;}
+.kpi.a1 .kpi-val{color:var(--danger);}
+.kpi.a2 .kpi-val{color:var(--warn);}
+.kpi.a3 .kpi-val{color:var(--acc3);}
+.kpi.a4 .kpi-val{color:var(--acc);}
+.kpi-sub{font-size:10px;color:var(--t3);margin-top:2px;}
+/* GAUGE */
+.gauge-wrap{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.gauge-label{font-size:12px;color:var(--t2);width:130px;flex-shrink:0;}
+.gauge-track{flex:1;height:8px;background:var(--s3);border-radius:4px;overflow:hidden;}
+.gauge-fill{height:100%;border-radius:4px;transition:width .6s cubic-bezier(.4,0,.2,1);}
+.gauge-val{font-size:12px;color:var(--t1);width:38px;text-align:right;flex-shrink:0;}
+/* SLIDERS */
+.slider-group{margin-bottom:14px;}
+.slider-row{margin-bottom:10px;}
+.slider-row label{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:5px;}
+.slider-row label span{color:var(--acc);font-weight:600;}
+input[type=range]{width:100%;accent-color:var(--acc);cursor:pointer;}
+/* CHART */
+.chart-area{position:relative;height:200px;margin-bottom:4px;}
+canvas{width:100%!important;height:100%!important;}
+/* RESULT BOXES */
+.result-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;}
+.result-box{background:var(--s1);border-radius:var(--r);padding:12px;text-align:center;border:1px solid var(--bd);}
+.result-box .rv{font-size:18px;font-weight:700;margin-bottom:2px;}
+.result-box .rl{font-size:10px;color:var(--t3);}
+.result-box.good .rv{color:var(--ok);}
+.result-box.warn .rv{color:var(--warn);}
+.result-box.bad .rv{color:var(--danger);}
+/* ACTION LIST */
+.action-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);align-items:flex-start;}
+.action-item:last-child{border:none;}
+.action-no{width:20px;height:20px;border-radius:50%;background:var(--s3);border:1px solid var(--bda);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--acc);flex-shrink:0;margin-top:1px;}
+.action-text{font-size:12px;color:var(--t2);line-height:1.6;}
+.action-text strong{color:var(--t1);}
+/* NB BOX */
+.nb-box{background:rgba(21,101,192,.05);border:1px solid rgba(21,101,192,.2);border-radius:var(--r);padding:12px;margin-bottom:8px;}
+.nb-box .nb-title{font-size:12px;color:var(--acc3);font-weight:600;margin-bottom:6px;}
+.nb-box .nb-text{font-size:12px;color:var(--t2);line-height:1.6;}
+/* WORLD MAP */
+.map-wrap{background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:14px;position:relative;}
+#map-svg{width:100%;height:auto;background:radial-gradient(ellipse at 50% 35%,#c5e8f5 0%,#a8d8ee 100%);border-radius:8px;display:block;}
+.map-tip{position:fixed;background:var(--s1);border:1px solid var(--bda);box-shadow:0 2px 12px rgba(0,80,120,.12);border-radius:8px;padding:8px 12px;font-size:12px;pointer-events:none;opacity:0;transition:opacity .1s;z-index:999;max-width:200px;}
+/* TABS in rpanel */
+.rtabs{display:flex;gap:4px;margin-bottom:12px;}
+.rtab{flex:1;padding:6px 0;text-align:center;font-size:11px;border-radius:6px;border:1px solid var(--bd);background:transparent;color:var(--t3);cursor:pointer;transition:all .15s;}
+.rtab.active{border-color:var(--bda);color:var(--acc);background:rgba(0,212,170,.08);}
+/* HORIZON CHART */
+.horizon-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;}
+.horizon-label{font-size:11px;color:var(--t3);width:90px;flex-shrink:0;text-align:right;}
+.horizon-segs{display:flex;gap:2px;flex:1;}
+.horizon-seg{height:14px;border-radius:2px;flex:1;}
+/* SCENARIO */
+.scenario-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-left:8px;}
+.scn-opt{background:rgba(0,204,119,.15);color:var(--ok);border:1px solid rgba(0,204,119,.3);}
+.scn-base{background:rgba(79,168,255,.15);color:var(--acc3);border:1px solid rgba(79,168,255,.3);}
+.scn-pess{background:rgba(255,59,59,.15);color:var(--danger);border:1px solid rgba(255,59,59,.3);}
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--s2);}
+::-webkit-scrollbar-thumb{background:var(--t3);border-radius:3px;}
+select{background:var(--s1);border:1px solid var(--bd);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:12px;cursor:pointer;outline:none;}
+select:hover{border-color:var(--bda);}
+.tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;background:var(--s3);border:1px solid var(--bd);color:var(--t2);margin:2px;}
+.tag.g{background:rgba(0,204,119,.1);border-color:rgba(0,204,119,.3);color:var(--ok);}
+.tag.b{background:rgba(79,168,255,.1);border-color:rgba(79,168,255,.3);color:var(--acc3);}
+.tag.a{background:rgba(0,212,170,.1);border-color:rgba(0,212,170,.3);color:var(--acc);}
+@media(max-width:900px){.body{grid-template-columns:1fr}.sidebar,.rpanel{display:none}.kpi-strip{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="hdr">
+  <div class="hdr-title"><span></span>GLOBAL FERTILIZER CRISIS SIMULATOR</div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span style="font-size:11px;color:var(--t3)">対象国：</span>
+    <span id="hdr-country" style="font-size:13px;color:var(--acc)">🇯🇵 日本</span>
+  </div>
+  <div style="font-size:11px;color:var(--t3)">クリックで国を選択 → シミュレーション</div>
+</header>
+
+<div class="body">
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-label">国を選択（100ヶ国）</div>
+  <div style="margin-bottom:8px">
+    <input type="text" id="country-search" placeholder="国名を検索..." oninput="filterCountryList(this.value)"
+      style="width:100%;padding:6px 10px;background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--t1);font-size:12px;outline:none;">
+  </div>
+  <div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap">
+    <button onclick="filterByRisk('all',this)" class="risk-filter-btn active" style="flex:1;padding:3px 0;font-size:10px;background:var(--s1);border:1px solid var(--bd);border-radius:4px;color:var(--t2);cursor:pointer">全て</button>
+    <button onclick="filterByRisk('critical',this)" class="risk-filter-btn" style="flex:1;padding:3px 0;font-size:10px;background:var(--s1);border:1px solid rgba(211,47,47,.35);border-radius:4px;color:var(--danger);cursor:pointer">緊急</button>
+    <button onclick="filterByRisk('high',this)" class="risk-filter-btn" style="flex:1;padding:3px 0;font-size:10px;background:var(--s1);border:1px solid rgba(230,81,0,.35);border-radius:4px;color:var(--warn);cursor:pointer">高</button>
+    <button onclick="filterByRisk('medium',this)" class="risk-filter-btn" style="flex:1;padding:3px 0;font-size:10px;background:var(--s1);border:1px solid rgba(21,101,192,.3);border-radius:4px;color:var(--acc3);cursor:pointer">中</button>
+    <button onclick="filterByRisk('low',this)" class="risk-filter-btn" style="flex:1;padding:3px 0;font-size:10px;background:var(--s1);border:1px solid rgba(46,125,50,.3);border-radius:4px;color:var(--ok);cursor:pointer">低</button>
+  </div>
+  <div id="country-list"></div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <!-- KPI -->
+  <div class="kpi-strip">
+    <div class="kpi a1"><div class="kpi-label">肥料入手困難スコア</div><div class="kpi-val" id="kpi-risk">—</div><div class="kpi-sub">2030年予測</div></div>
+    <div class="kpi a2"><div class="kpi-label">肥料コスト上昇率</div><div class="kpi-val" id="kpi-cost">—</div><div class="kpi-sub">2020年比</div></div>
+    <div class="kpi a3"><div class="kpi-label">人口増加 食料需要増</div><div class="kpi-val" id="kpi-food">—</div><div class="kpi-sub">2030年までの増加</div></div>
+    <div class="kpi a4"><div class="kpi-label">NB対策後 削減効果</div><div class="kpi-val" id="kpi-nb">—</div><div class="kpi-sub">肥料使用量削減</div></div>
+  </div>
+
+  <!-- MAP -->
+  <div class="map-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:11px;color:var(--t2)">世界肥料危機リスクマップ（クリックで国選択）</span>
+      <div style="display:flex;gap:12px;font-size:10px;color:var(--t3);">
+        <span><span style="display:inline-block;width:8px;height:8px;background:var(--danger);border-radius:2px"></span> 緊急</span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:var(--warn);border-radius:2px"></span> 高</span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:var(--acc3);border-radius:2px"></span> 中</span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:var(--ok);border-radius:2px"></span> 低</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 1000 490" id="map-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <g id="map-g"></g>
+    </svg>
+    <div class="map-tip" id="map-tip"></div>
+  </div>
+
+  <!-- RISK GAUGES -->
+  <div class="card">
+    <div class="card-title">危機指標（入手困難化の要因）</div>
+    <div id="risk-gauges"></div>
+  </div>
+
+  <!-- PRICE CHART -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;">肥料価格推移・予測（USD/t）</span>
+      <select id="chart-item" onchange="updateChart()">
+        <option value="urea">尿素</option>
+        <option value="dap">DAP（リン安）</option>
+        <option value="mop">MOP（カリ）</option>
+      </select>
+    </div>
+    <div class="chart-area"><canvas id="price-chart"></canvas></div>
+    <div style="display:flex;gap:14px;font-size:10px;color:var(--t3);margin-top:6px;flex-wrap:wrap;">
+      <span><span style="display:inline-block;width:20px;height:2px;background:var(--acc);vertical-align:middle;margin-right:4px"></span>実績</span>
+      <span><span style="display:inline-block;width:14px;height:2px;background:var(--ok);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--ok)"></span>楽観予測</span>
+      <span><span style="display:inline-block;width:14px;height:2px;background:var(--acc3);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--acc3)"></span>ベース予測</span>
+      <span><span style="display:inline-block;width:14px;height:2px;background:var(--danger);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--danger)"></span>悲観予測</span>
+      <span style="margin-left:8px;background:rgba(79,168,255,.08);padding:1px 6px;border-radius:3px;color:var(--acc3)">2025→ 予測ゾーン</span>
+    </div>
+  </div>
+</main>
+
+<!-- RIGHT PANEL -->
+<div class="rpanel">
+  <div class="rtabs">
+    <button class="rtab active" onclick="switchTab('sim',this)">シミュレーション</button>
+    <button class="rtab" onclick="switchTab('nb',this)">ナノバブル対策</button>
+    <button class="rtab" onclick="switchTab('act',this)">対策一覧</button>
+  </div>
+
+  <!-- TAB: SIMULATION -->
+  <div id="tab-sim">
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;">パラメーター設定 <span id="country-name-tag" style="color:var(--acc);font-size:12px"></span></div>
+    <div class="slider-group">
+      <div class="slider-row">
+        <label>肥料価格高騰率 <span id="sv-price">+80%</span></label>
+        <input type="range" min="0" max="300" value="80" id="sl-price" oninput="onSlider()">
+      </div>
+      <div class="slider-row">
+        <label>人口増加率 <span id="sv-pop">+8%</span></label>
+        <input type="range" min="0" max="40" value="8" id="sl-pop" oninput="onSlider()">
+      </div>
+      <div class="slider-row">
+        <label>有機肥料転換率 <span id="sv-org">30%</span></label>
+        <input type="range" min="0" max="100" value="30" id="sl-org" oninput="onSlider()">
+      </div>
+      <div class="slider-row">
+        <label>ナノバブル水導入率 <span id="sv-nb">20%</span></label>
+        <input type="range" min="0" max="100" value="20" id="sl-nb" oninput="onSlider()">
+      </div>
+      <div class="slider-row">
+        <label>政策支援レベル <span id="sv-pol">中</span></label>
+        <input type="range" min="1" max="3" value="2" step="1" id="sl-pol" oninput="onSlider()">
+      </div>
+    </div>
+
+    <div class="result-grid" id="sim-results"></div>
+
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;">2030年シナリオ</div>
+    <div id="scenario-bar" style="margin-bottom:12px;"></div>
+    <div style="font-size:11px;color:var(--t3);margin-bottom:4px;">年別・入手困難度推移</div>
+    <div id="horizon-chart" style="margin-bottom:8px;"></div>
+    <div style="font-size:10px;color:var(--t3);text-align:right;margin-bottom:12px">■ 現状　■ ベース　■ 悲観</div>
+
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px;">国別 問題提起</div>
+    <div id="country-issues" style="font-size:12px;color:var(--t2);line-height:1.8;"></div>
+  </div>
+
+  <!-- TAB: NANOBUBBLE -->
+  <div id="tab-nb" style="display:none">
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;">ナノバブル・マイクロバブル 対策効果</div>
+    <div id="nb-content"></div>
+  </div>
+
+  <!-- TAB: ACTIONS -->
+  <div id="tab-act" style="display:none">
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;">対策ロードマップ</div>
+    <div id="act-content"></div>
+  </div>
+</div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ============================================================
+// DATA
+// ============================================================
+const COUNTRIES = [
+  {id:'japan',flag:'🇯🇵',name:'日本',risk:'high',lat:36,lon:138,fertDep:88,popGrowth:-2,importRisk:92,scarcityNow:62,crop:'米・野菜・果樹',issues:['リン・カリウムを100%輸入依存。中国・ロシア集中リスク大','食料自給率38%（カロリーベース）と先進国最低水準','農家の高齢化・耕作放棄地増加で有機転換が難しい','人口減少により農業労働力不足が深刻化'],nb:{ap:'施設園芸・水耕栽培',eff:'肥料節約30〜40%・収量15〜25%増',note:'水耕栽培での養液節約効果が実証済み。稲作でのメタン排出削減も期待。'},actions:['下水汚泥からの再生リン回収施設を全国展開','家畜排せつ物の堆肥化促進・耕畜連携マッチング整備','ナノバブル水を施設園芸・水耕栽培に先行導入','有機農業転換支援（農地25%有機化目標）','食品廃棄物の飼料化・肥料化（食品リサイクル法強化）']},
+  {id:'china',flag:'🇨🇳',name:'中国',risk:'medium',lat:35,lon:105,fertDep:15,popGrowth:0,importRisk:30,scarcityNow:38,crop:'米・小麦・トウモロコシ・大豆',issues:['過剰施肥による土壌・水質汚染が極めて深刻','輸出規制で世界市場に大きな影響を与える','耕作地の都市化による面積減少','農村の高齢化・農業労働力不足'],nb:{ap:'施設園芸・水耕・稲作',eff:'肥料節約25〜35%',note:'農業省がNB技術を節水・省肥料政策に組み込む方向で研究支援拡大。国家重点研究に指定。'},actions:['「土壌10条」政策強化で化学肥料削減目標の実現','有機農業を国家重点産業に位置づけ','ナノバブル技術を農業省普及政策に組み込む','下水汚泥・食品廃棄物のリサイクル義務化','輸出規制の段階的緩和で国際協調']},
+  {id:'india',flag:'🇮🇳',name:'インド',risk:'high',lat:21,lon:78,fertDep:62,popGrowth:9,importRisk:72,scarcityNow:68,crop:'小麦・米・綿花・豆類',issues:['世界最大の化学肥料消費国（年間2,800万t超）','リン・カリウムの大部分を輸入。政府補助金が財政を圧迫','緑の革命の負の遺産：土壌劣化・地下水枯渇','人口増加（2030年頃に世界最多）で食料需要が急増'],nb:{ap:'灌漑農業・稲作',eff:'肥料節約20〜30%・水使用25%削減',note:'ドリップ灌漑との組み合わせが有効。太陽光発電型NB装置で農村電力問題に対応。'},actions:['バイオ肥料（根粒菌・菌根菌）の農家普及プログラム拡大','マメ科輪作による大気窒素固定の復活','ナノバブル灌漑のドリップシステムへの組み込み','土壌診断に基づく精密施肥でムダを削減','小規模農家向け有機農業パッケージ支援']},
+  {id:'usa',flag:'🇺🇸',name:'アメリカ',risk:'low',lat:38,lon:-97,fertDep:40,popGrowth:4,importRisk:42,scarcityNow:35,crop:'大豆・トウモロコシ・小麦・綿花',issues:['カリウムの大部分をカナダ等から輸入','大豆・トウモロコシの単作による土壌劣化','肥料流出による湾岸デッドゾーン問題','農業ロビーが有機転換政策を阻む傾向'],nb:{ap:'センターピボット大規模灌漑',eff:'肥料節約15〜25%・水使用20%削減',note:'大規模農業向けNB灌漑システムの商業化が進む。センターピボットへの組み込みが主要ユースケース。'},actions:['精密農業×ナノバブルで肥料適正投入','バイオ肥料スタートアップへの投資拡大','カバークロップ・輪作の義務化インセンティブ','大豆根粒菌接種の全国標準化','土壌炭素クレジット市場の整備']},
+  {id:'brazil',flag:'🇧🇷',name:'ブラジル',risk:'critical',lat:-14,lon:-51,fertDep:85,popGrowth:5,importRisk:88,scarcityNow:80,crop:'大豆・サトウキビ・トウモロコシ・コーヒー',issues:['肥料輸入依存度が世界最高水準（約85%）','ロシア・ベラルーシのカリウム依存が制裁で直撃','大豆農業の化学肥料多投構造からの転換が急務','アマゾン土壌は貧栄養で肥料切れが農業に壊滅的打撃'],nb:{ap:'大規模灌漑農業（センターピボット）',eff:'肥料節約25〜35%・収量20〜30%増',note:'大型NB発生装置をセンターピボット灌漑に組み込むことで大面積対応。大豆農業に即効。'},actions:['大豆の根粒菌接種をさらに普及（現在70%→95%目標）','カバークロップ（ブラキアリア）で土壌有機物回復','センターピボット灌漑にナノバブル発生装置を統合','アマゾン土壌へのバイオ炭施用','カリウム国産代替の探索（国内岩塩資源の活用）']},
+  {id:'russia',flag:'🇷🇺',name:'ロシア',risk:'low',lat:62,lon:100,fertDep:10,popGrowth:0,importRisk:15,scarcityNow:18,crop:'小麦・大麦・ひまわり・サトウダイコン',issues:['制裁による輸出制限が農業資材輸入に影響','農業労働力不足・高齢化','有機農業がほぼ未発達','土地広大だが均一管理が困難'],nb:{ap:'大規模穀物農業',eff:'肥料節約15〜20%',note:'大規模農業向けNB灌漑の国内開発が開始。精密農業との組み合わせで肥料効率改善。'},actions:['有機農業の発展で付加価値輸出を強化','精密農業×ナノバブル灌漑で化学肥料消費量削減','西シベリア黒土地帯での有機農業実証','バイオガス事業の大規模化','輸出戦略の多角化（制裁リスク分散）']},
+  {id:'ukraine',flag:'🇺🇦',name:'ウクライナ',risk:'critical',lat:49,lon:32,fertDep:45,popGrowth:-8,importRisk:85,scarcityNow:78,crop:'小麦・トウモロコシ・ひまわり・大麦',issues:['農地の30%以上が戦争で農業不能。輸出港封鎖で世界食料市場に直撃','肥料工場の破壊で国内生産激減','地雷汚染で営農再開に安全問題','戦後復興のための農業再建・土壌修復が急務'],nb:{ap:'戦後復興スマート農業',eff:'肥料節約20〜35%',note:'EU支援のスマート農業再建計画にNB技術の組み込みが検討されている。チョルノーゼム（黒土）の有機物回復に有効。'},actions:['EU主導の農業復興計画にナノバブル灌漑を組み込む','チョルノーゼム（黒土）の有機物回復に堆肥・緑肥','戦後農地の土壌診断と精密施肥設計','地雷除去後の段階的農業再開に有機農業を優先','黒海出荷ルートの安全確保（国際外交）']},
+  {id:'indonesia',flag:'🇮🇩',name:'インドネシア',risk:'critical',lat:-1,lon:114,fertDep:65,popGrowth:8,importRisk:80,scarcityNow:77,crop:'米・パーム油・ゴム・コーヒー',issues:['カリウム・リン酸肥料の大部分を輸入','年間農業補助金約50億ドル（財政圧迫）','離島が多く肥料輸送コストが高い','熱帯土壌の速い有機物分解で肥料効率が悪い'],nb:{ap:'水耕・施設園芸・稲作',eff:'肥料節約25〜35%・水使用20%削減',note:'離島農業での太陽光NB装置が有効。水耕栽培普及とともに需要増加。'},actions:['パーム油廃棄物（EFB）の大規模堆肥化事業','熱帯マメ科植物による窒素固定システム','離島向け太陽光発電型ナノバブル装置の整備','農業補助金を化学肥料→有機肥料転換支援に振り替え','下水汚泥・食品廃棄物のバイオガス化と消化液肥利用']},
+  {id:'ethiopia',flag:'🇪🇹',name:'エチオピア',risk:'critical',lat:9,lon:40,fertDep:94,popGrowth:22,importRisk:97,scarcityNow:95,crop:'テフ・コーヒー・ソルガム・トウモロコシ',issues:['化学肥料ほぼ全量を輸入。外貨不足で購入困難','2022年の肥料不足で食料生産が深刻打撃','人口増加率が高く食料需要急増','農民の85%が小農家で技術・資金ともに脆弱'],nb:{ap:'太陽光発電型ポータブルMB装置',eff:'小規模農地で肥料節約20〜30%',note:'電力インフラが脆弱なため太陽光発電型の低コスト・低電力MB装置が鍵。コミュニティ共同利用モデルで普及。'},actions:['太陽光発電型マイクロバブル装置の村落単位導入','アカシア等マメ科樹木を使った農林複合で窒素固定','牛糞の燃料化から肥料化への転換','緑肥・休耕輪作の復活（伝統農法の近代化）','FAO等国際支援と組み合わせた緊急有機肥料配布']},
+  {id:'nigeria',flag:'🇳🇬',name:'ナイジェリア',risk:'critical',lat:9,lon:8,fertDep:82,popGrowth:25,importRisk:90,scarcityNow:88,crop:'トウモロコシ・キャッサバ・ヤム・ソルガム',issues:['化学肥料の80%以上を輸入。外貨不足で逼迫','2050年頃に世界3位の人口大国（5億人超）','農業インフラが著しく未整備','土地劣化が深刻（過耕作・森林破壊）'],nb:{ap:'太陽光発電型MBコミュニティ装置',eff:'小農家で肥料節約15〜25%',note:'電力インフラ問題があるため太陽光発電型MB装置が現実的。コミュニティ共同利用で初期コストを分担。'},actions:['コンポスト化農業廃棄物の組織的収集体制整備','アグロフォレストリー（農林複合）の復活','コミュニティ型太陽光マイクロバブル装置の導入','FAO・世銀支援と連携した有機農業普及プログラム','牛糞・鶏糞の堆肥化を収入源として農家奨励']},
+  {id:'australia',flag:'🇦🇺',name:'オーストラリア',risk:'low',lat:-25,lon:133,fertDep:55,popGrowth:8,importRisk:50,scarcityNow:40,crop:'小麦・大麦・サトウキビ・綿花',issues:['リン・カリウム肥料の多くを輸入','世界最大の農地面積だが土壌が貧栄養','干ばつ頻度増加（気候変動影響）','農業用水の枯渇問題'],nb:{ap:'乾燥地帯農業・灌漑',eff:'水使用25〜30%削減・肥料節約15〜25%',note:'節水農業との組み合わせで乾燥地帯農業に革新的効果。バイオ炭農業との相乗効果で貧栄養土壌改善。'},actions:['乾燥地帯向けナノバブル灌漑技術の商業展開','バイオ炭施用で貧栄養土壌の保肥力向上','精密農業で無駄な施肥を排除','水資源回収（再生水）のナノバブル活用','在来マメ科植物の活用で窒素固定']},
+  {id:'vietnam',flag:'🇻🇳',name:'ベトナム',risk:'medium',lat:14,lon:108,fertDep:55,popGrowth:5,importRisk:60,scarcityNow:58,crop:'米・コーヒー・コショウ・カシューナッツ',issues:['過剰施肥による土壌酸性化・水質汚染が深刻','メコンデルタの塩害問題が深刻化','化学肥料の50%以上を輸入（中国依存）','農業の集約化で有機物投入が減少'],nb:{ap:'稲作・野菜・コーヒー農園',eff:'肥料節約20〜30%・メタン排出削減40%',note:'農業省主導の稲作ナノバブル試験が進行中。メタン排出削減と収量向上の一石二鳥効果。'},actions:['農業省主導のNB稲作パイロット事業の全国展開','水田魚米共生（IPAT）システムで有機物循環','コーヒー産地での有機転換','土壌酸性化対策に石灰＋バイオ炭施用','メコンデルタ塩害対策にナノバブル水の活用']},
+  {id:'germany',flag:'🇩🇪',name:'ドイツ',risk:'low',lat:51,lon:10,fertDep:35,popGrowth:2,importRisk:38,scarcityNow:30,crop:'小麦・大麦・テンサイ・菜種',issues:['カリウム・リン酸系肥料の輸入依存','EU農業環境規制（Farm to Fork）への対応コスト','農業の効率化圧力と環境保全の両立','有機農業転換に向けた農家の収益支援が課題'],nb:{ap:'施設園芸・精密農業',eff:'肥料節約20〜30%',note:'EU農業研究プログラムでNB技術の検証が進行。精密農業との組み合わせで施肥最適化。'},actions:['EU Farm to Fork政策（2030年農薬50%削減・有機25%）の推進','精密農業×ナノバブルで肥料適正投入','農業廃棄物のバイオガス化・消化液の肥料利用','土壌炭素クレジット制度の整備','農家への有機転換補助金の拡充']},
+  {id:'france',flag:'🇫🇷',name:'フランス',risk:'low',lat:47,lon:2,fertDep:40,popGrowth:2,importRisk:42,scarcityNow:32,crop:'小麦・大麦・トウモロコシ・ブドウ',issues:['カリウム・リン酸系肥料の輸入依存','農民の強い抵抗で有機転換が遅れる','地下水硝酸塩汚染問題','EU農業政策と農家収益の板挟み'],nb:{ap:'ワイン農業・精密農業',eff:'肥料節約20〜28%',note:'EU農業研究プログラムでNB技術の検証が進行中。ワイン農業での試験が先行。'},actions:['EU有機農業目標（2030年農地25%有機化）の達成','ワイン産地でのNB水散布による品質向上','農業廃棄物のバイオガス化・堆肥化','土壌診断と精密施肥の義務化','農民への有機転換移行支援の充実']},
+  {id:'argentina',flag:'🇦🇷',name:'アルゼンチン',risk:'low',lat:-38,lon:-63,fertDep:55,popGrowth:5,importRisk:58,scarcityNow:45,crop:'大豆・トウモロコシ・小麦・牛肉',issues:['大豆の化学肥料多投構造が持続','経済不安定で農業投資が変動','リン・カリウムの輸入依存が高い','土壌侵食が深刻化'],nb:{ap:'大規模灌漑農業',eff:'肥料節約20〜30%',note:'センターピボット灌漑へのNB統合が現実的。大豆・トウモロコシ農業の肥料コスト削減に直結。'},actions:['大豆根粒菌接種の全国標準化','カバークロップで土壌有機物回復','灌漑にナノバブル発生装置を統合','有機農業輸出ブランドの確立','土壌侵食対策として不耕起栽培の普及']},
+  {id:'canada',flag:'🇨🇦',name:'カナダ',risk:'low',lat:56,lon:-106,fertDep:25,popGrowth:5,importRisk:28,scarcityNow:20,crop:'カノーラ・小麦・大麦・トウモロコシ',issues:['一部リン・カリウムは自給だが窒素肥料依存','広大な農地だが輸送コストが高い','農地の有機物低下が進行','気候変動による生育期間変動'],nb:{ap:'大規模穀物農業',eff:'肥料節約15〜20%',note:'精密農業×ナノバブルで化学肥料の施肥効率を改善。大規模農場に適したシステム開発が進む。'},actions:['精密農業×ナノバブルで施肥最適化','カノーラ・マメ科輪作で窒素固定','有機農業輸出ブランドの確立','農業廃棄物のバイオガス化事業','土壌炭素固定によるカーボンクレジット活用']},
+  {id:'south_korea',flag:'🇰🇷',name:'韓国',risk:'high',lat:36,lon:128,fertDep:90,popGrowth:0,importRisk:88,scarcityNow:70,crop:'米・野菜・果樹・大豆',issues:['化学肥料のほぼ全量を輸入依存','農家の高齢化・農地面積の減少','食料自給率が低水準','都市化で農業後継者不足が深刻'],nb:{ap:'施設園芸・水耕栽培',eff:'肥料節約30〜40%',note:'日本と同様に水耕栽培・施設園芸でのNB導入が進む。稲作へのNB水灌漑試験も開始。'},actions:['下水汚泥からのリン回収施設を全国展開','施設園芸でのナノバブル養液栽培の普及','農業廃棄物のバイオガス化・液肥利用','スマート農業×NB技術でデータ連携','有機農業認証制度の強化と輸出促進']},
+  {id:'mexico',flag:'🇲🇽',name:'メキシコ',risk:'medium',lat:23,lon:-102,fertDep:58,popGrowth:8,importRisk:62,scarcityNow:55,crop:'トウモロコシ・小麦・サトウキビ・アボカド',issues:['化学肥料の多くを輸入依存','農村の貧困で有機転換投資が難しい','土壌劣化・乾燥化が進行','農業水利用が不効率'],nb:{ap:'灌漑農業・施設園芸',eff:'肥料節約20〜28%',note:'乾燥地帯農業でのNB灌漑効果が大きい。アボカド・野菜農業での導入が先行。'},actions:['有機農業輸出ブランドの確立（米国市場向け）','NB灌漑でアボカド・野菜の収量向上','緑肥・輪作でトウモロコシ農地の土壌改善','農村コミュニティへの有機農業技術普及','水資源の効率利用とNB技術の組み合わせ']},
+  {id:'south_africa',flag:'🇿🇦',name:'南アフリカ',risk:'medium',lat:-30,lon:23,fertDep:50,popGrowth:8,importRisk:55,scarcityNow:48,crop:'トウモロコシ・サトウキビ・小麦・柑橘類',issues:['水不足が深刻（年降水量490mm）','窒素・リン酸系化学肥料の大部分を輸入','土壌劣化・塩類集積問題','エネルギーコスト高（電力危機）'],nb:{ap:'節水農業・灌漑',eff:'水使用25〜30%削減・肥料節約20%',note:'節水効果が水不足対策として注目。太陽光発電との組み合わせが電力危機の解決策にも。'},actions:['バイオ炭試験を全国農地に展開','太陽光発電型ナノバブル灌漑で電力・水問題を同時解決','マメ科緑肥輪作で窒素固定','有機農業の輸出向け認証取得支援','土壌健全性モニタリングの強化']},
+  {id:'egypt',flag:'🇪🇬',name:'エジプト',risk:'high',lat:27,lon:30,fertDep:78,popGrowth:12,importRisk:80,scarcityNow:72,crop:'小麦・綿花・サトウキビ・トマト',issues:['化学肥料の大部分を輸入。外貨不足で逼迫','ナイル川水量の減少で農業用水が危機的','人口増加で食料需要急増','農地面積が国土の3%と極めて限られている'],nb:{ap:'乾燥地帯精密灌漑',eff:'水使用30〜40%削減・肥料節約25%',note:'ナイル川水量減少の深刻な課題をNBで緩和。少ない水で最大効果を引き出す精密灌漑が急務。'},actions:['NB精密灌漑でナイル川水使用量削減','下水再生水×ナノバブルで農地還元','砂漠農業開発プロジェクトへのNB統合','有機農業輸出ブランドの確立','バイオ肥料（根粒菌）の普及で窒素輸入削減']},
+  {id:'kenya',flag:'🇰🇪',name:'ケニア',risk:'high',lat:0,lon:38,fertDep:82,popGrowth:18,importRisk:85,scarcityNow:78,crop:'茶・コーヒー・トウモロコシ・花卉',issues:['化学肥料の80%以上を輸入。価格高騰直撃','人口増加で食料安保が悪化','農村の小規模農家が大部分で投資能力が低い','干ばつ頻度の増加（気候変動）'],nb:{ap:'太陽光発電型MB装置・灌漑',eff:'肥料節約15〜25%・耐干ばつ性向上',note:'太陽光NBで乾燥期の節水と肥料効率向上。茶・コーヒーの品質向上にも寄与。'},actions:['太陽光発電型マイクロバブル装置の農村導入','堆肥化の農村単位での組織化','茶・コーヒー農園での有機認証取得','バイオ炭施用で干ばつ耐性向上','国際機関支援と連携した有機農業普及']},
+  {id:'tanzania',flag:'🇹🇿',name:'タンザニア',risk:'high',lat:-6,lon:35,fertDep:85,popGrowth:20,importRisk:87,scarcityNow:80,crop:'コーヒー・綿花・タバコ・サイザル麻',issues:['化学肥料ほぼ全量を輸入。外貨不足で深刻','急速な人口増加で食料需要急増','農業インフラが未整備','土壌劣化・森林破壊が深刻'],nb:{ap:'太陽光MB・小農規模',eff:'肥料節約15〜20%',note:'電力インフラが脆弱。太陽光発電型MB装置のコミュニティ共有モデルが最適。'},actions:['FAO支援と連携した有機農業プログラム','コーヒー・茶の有機認証で輸出付加価値向上','太陽光マイクロバブル装置の村落展開','緑肥・マメ科輪作で土壌窒素固定','農業廃棄物の堆肥化組織化']},
+  {id:'ghana',flag:'🇬🇭',name:'ガーナ',risk:'high',lat:8,lon:-1,fertDep:80,popGrowth:18,importRisk:82,scarcityNow:76,crop:'カカオ・コーヒー・米・キャッサバ',issues:['化学肥料の80%以上を輸入依存','カカオ農業の土壌疲弊が深刻','人口増加と農地不足','輸入肥料価格高騰が農家経済を直撃'],nb:{ap:'カカオ農園・太陽光MB',eff:'肥料節約15〜25%・品質向上',note:'カカオ農業での土壌改善にNBが有効。有機認証カカオの輸出価値向上に直結。'},actions:['カカオ農園での有機農業認証取得支援','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化・循環利用','バイオ炭施用で土壌有機物回復','COCOBOD（カカオ公社）との連携推進']},
+  {id:'bangladesh',flag:'🇧🇩',name:'バングラデシュ',risk:'high',lat:24,lon:90,fertDep:88,popGrowth:8,importRisk:90,scarcityNow:82,crop:'米・ジュート・茶・野菜',issues:['化学肥料のほぼ全量を輸入。政府補助金が財政圧迫','世界最高水準の人口密度で農地が不足','洪水・気候変動リスクが高い','農家の所得が極めて低く転換投資が困難'],nb:{ap:'水田灌漑・浮島農法',eff:'肥料節約20〜30%',note:'洪水が多い環境でのNB水田灌漑が有効。浮島農法との組み合わせで狭小農地を最大活用。'},actions:['水田へのナノバブル灌漑導入','堆肥・バイオ肥料の農村普及プログラム','浮島農法（バゴン）との有機農業統合','洪水後の土壌回復にバイオ炭活用','国際支援と連携した肥料代替技術普及']},
+  {id:'pakistan',flag:'🇵🇰',name:'パキスタン',risk:'high',lat:30,lon:70,fertDep:70,popGrowth:10,importRisk:75,scarcityNow:68,crop:'小麦・綿花・サトウキビ・米',issues:['化学肥料の輸入依存が高い。外貨危機で逼迫','人口増加と食料自給の両立が課題','水資源の管理不効率（インダス川水利問題）','土壌劣化・塩類集積が深刻'],nb:{ap:'灌漑農業・精密施肥',eff:'肥料節約20〜28%・水使用削減',note:'インダス川流域の灌漑農業にNBを統合。水効率と肥料効率を同時改善。'},actions:['NB精密灌漑でインダス川水使用量削減','マメ科輪作で窒素固定・土壌改善','バイオ肥料の農村普及','塩類集積土壌対策にバイオ炭＋NB水','農業補助金を有機肥料転換支援に振り替え']},
+  {id:'myanmar',flag:'🇲🇲',name:'ミャンマー',risk:'high',lat:17,lon:96,fertDep:72,popGrowth:8,importRisk:74,scarcityNow:68,crop:'米・豆類・スイカ・サトウキビ',issues:['化学肥料の輸入依存が高い','政治情勢の不安定化で農業投資が停滞','農業インフラの整備が遅れている','農村の資金・技術不足'],nb:{ap:'稲作・灌漑農業',eff:'肥料節約20〜28%',note:'稲作へのNB導入は効果大。低コスト機器で農村レベルでも展開可能。'},actions:['稲作NB灌漑のパイロット事業開始','伝統的なマメ科輪作の復活','農業廃棄物の堆肥化普及','バイオ肥料（根粒菌）の農家配布','国際支援機関との連携強化']},
+  {id:'cambodia',flag:'🇰🇭',name:'カンボジア',risk:'high',lat:12,lon:105,fertDep:75,popGrowth:8,importRisk:77,scarcityNow:70,crop:'米・キャッサバ・砂糖・魚',issues:['化学肥料の輸入依存が高い','農業インフラが脆弱','土壌劣化が進行','農家所得が低く転換投資が困難'],nb:{ap:'稲作・水田農業',eff:'肥料節約20〜25%',note:'メコン川流域の水田農業にNBが有効。魚と稲の複合農業との相乗効果も期待。'},actions:['メコン川流域の稲作NB灌漑導入','魚稲共生農業との統合','農業廃棄物の堆肥化組織化','バイオ肥料の農村普及プログラム','有機農業認証取得支援']},
+  {id:'thailand',flag:'🇹🇭',name:'タイ',risk:'medium',lat:15,lon:101,fertDep:55,popGrowth:3,importRisk:58,scarcityNow:50,crop:'米・キャッサバ・ゴム・砂糖',issues:['化学肥料の輸入依存が高い','土壌劣化・過剰施肥による水質汚染','農業の若者離れ','輸出農業への過度な依存'],nb:{ap:'水田・施設園芸',eff:'肥料節約20〜30%・品質向上',note:'ブランド米の品質向上にNBが有効。有機認証取得で輸出付加価値向上。'},actions:['有機農業認証取得でプレミアム輸出市場参入','稲作へのNB灌漑導入','キャッサバ農地の土壌改善に堆肥・バイオ炭','精密農業×ナノバブルで化学肥料削減','農業廃棄物のバイオガス化事業']},
+  {id:'malaysia',flag:'🇲🇾',name:'マレーシア',risk:'medium',lat:4,lon:108,fertDep:55,popGrowth:5,importRisk:58,scarcityNow:50,crop:'パーム油・ゴム・コメ・カカオ',issues:['化学肥料の輸入依存','パーム油農業の環境負荷が高い','土壌劣化・熱帯雨林破壊','農業の担い手不足'],nb:{ap:'パーム油農園・施設園芸',eff:'肥料節約20〜30%',note:'パーム油廃棄物（EFB）とNBの組み合わせで循環農業が実現。'},actions:['パーム油廃棄物の堆肥化×NB水で循環農業','RSPO認証取得で持続可能なパーム油輸出','施設園芸でのナノバブル養液栽培導入','バイオ肥料（根粒菌）の農園普及','土壌炭素クレジット市場への参加']},
+  {id:'philippines',flag:'🇵🇭',name:'フィリピン',risk:'high',lat:12,lon:122,fertDep:78,popGrowth:10,importRisk:80,scarcityNow:72,crop:'米・トウモロコシ・バナナ・サトウキビ',issues:['化学肥料の約80%を輸入依存','台風・気候変動リスクが高い','農家所得が低く転換投資が困難','農地改革の未完成で土地問題が残る'],nb:{ap:'水田・バナナ農園',eff:'肥料節約20〜28%',note:'台風後の農地回復にNBが有効。バナナ農業での品質向上効果も期待。'},actions:['バナナ農園でのNB水散布・品質向上','水田へのナノバブル灌漑導入','農業廃棄物の堆肥化普及','バイオ肥料の農村コミュニティ配布','気候変動対応型農業（被災後復旧の高速化）']},
+  {id:'sri_lanka',flag:'🇱🇰',name:'スリランカ',risk:'critical',lat:8,lon:81,fertDep:85,popGrowth:5,importRisk:87,scarcityNow:82,crop:'茶・ゴム・ヤシ・米',issues:['2022年の有機農業強制移行政策で農業危機（肥料輸入禁止の失敗）','IMF支援中で財政が逼迫','化学肥料輸入の再開後も供給不安定','農家の信頼回復が急務'],nb:{ap:'茶農園・水田',eff:'肥料節約20〜30%',note:'2022年の政策失敗教訓を踏まえた段階的導入が重要。茶農園でのNB水散布が先行適用に適切。'},actions:['段階的有機転換（強制ではなく支援型）の再構築','茶農園でのNB水散布による品質向上・輸出強化','バイオ肥料の実証・農家への技術移転','下水汚泥・農業廃棄物のリン回収','国際支援機関と連携した農業再建計画']},
+  {id:'nepal',flag:'🇳🇵',name:'ネパール',risk:'high',lat:28,lon:84,fertDep:82,popGrowth:10,importRisk:84,scarcityNow:78,crop:'米・小麦・トウモロコシ・茶',issues:['化学肥料のほぼ全量を輸入依存','山岳地形で輸送コストが高い','農業インフラが脆弱','農村の若者流出で農業労働力不足'],nb:{ap:'棚田農業・太陽光MB',eff:'肥料節約15〜25%',note:'山岳地形での輸送コスト削減にNBが有効。少ない肥料で最大効果を引き出す技術が急務。'},actions:['棚田へのNB水導入で少量肥料で最大効果','山地農業向け緑肥・マメ科輪作','太陽光発電型マイクロバブル装置の農村展開','茶農園での有機認証取得','バイオ肥料配布プログラムの整備']},
+  {id:'turkey',flag:'🇹🇷',name:'トルコ',risk:'medium',lat:39,lon:35,fertDep:52,popGrowth:5,importRisk:55,scarcityNow:48,crop:'小麦・綿花・ヒマワリ・ハシバミ',issues:['リン・カリウムの輸入依存','農業用水の過剰利用','土壌侵食が深刻化','農業の近代化と伝統農法の共存が課題'],nb:{ap:'灌漑農業・施設園芸',eff:'肥料節約20〜28%',note:'施設園芸でのトマト・胡瓜農業に先行導入。灌漑農業への精密施肥×ナノバブルが有効。'},actions:['施設園芸（トマト・胡瓜）でのNB養液栽培','灌漑農業への精密施肥×ナノバブル','農業廃棄物のバイオガス化・液肥利用','マメ科輪作で土壌窒素固定','有機農業輸出ブランドの確立（EU向け）']},
+  {id:'iran',flag:'🇮🇷',name:'イラン',risk:'medium',lat:32,lon:53,fertDep:58,popGrowth:8,importRisk:62,scarcityNow:55,crop:'小麦・米・サフラン・ピスタチオ',issues:['経済制裁で農業資材の輸入が困難','水資源の枯渇が深刻','砂漠化が進行','農業への投資不足'],nb:{ap:'乾燥地帯精密灌漑',eff:'水使用30〜35%削減・肥料節約20%',note:'制裁下での国産農業強化にNBが有効。少ない水・肥料で最大効果を引き出す技術が急務。'},actions:['乾燥地帯向けNB精密灌漑の国産化開発','サフラン・ピスタチオの有機認証取得','砂漠化対策に緑肥・バイオ炭施用','国内有機肥料資源（家畜糞尿等）の活用','地下水保全×NB節水農業の推進']},
+  {id:'saudi_arabia',flag:'🇸🇦',name:'サウジアラビア',risk:'high',lat:24,lon:45,fertDep:92,popGrowth:5,importRisk:90,scarcityNow:85,crop:'ナツメヤシ・野菜・水耕作物',issues:['食料の80%を輸入。化学肥料もほぼ全量輸入','化石水（地下水）の枯渇で農業継続性が疑問','砂漠環境で有機農業の前提条件が乏しい','石油収入を使った食料輸入への依存'],nb:{ap:'垂直農業・水耕栽培×淡水化水',eff:'肥料節約35〜45%・水使用大幅削減',note:'淡水化水×ナノバブルで砂漠農業・水耕農業の効率化に最も期待が大きい地域。ビジョン2030農業計画への組み込みが進む。'},actions:['淡水化水×NB水耕栽培で砂漠農業革新','ビジョン2030農業計画へのNB技術組み込み','垂直農業施設でのNB養液栽培導入','ナツメヤシ廃棄物のバイオ炭原料活用','GCC諸国との農業技術共有']},
+  {id:'iraq',flag:'🇮🇶',name:'イラク',risk:'high',lat:33,lon:44,fertDep:78,popGrowth:12,importRisk:80,scarcityNow:75,crop:'小麦・大麦・ナツメヤシ・米',issues:['化学肥料の大部分を輸入依存','チグリス・ユーフラテス川の水量減少','農業インフラの戦争被害が残る','土地の塩類集積問題が深刻'],nb:{ap:'メソポタミア農業・灌漑',eff:'水使用25〜30%削減・肥料節約20%',note:'古代農業文明の地でNBによる現代化が有効。塩類集積土壌の改善にNB水が期待される。'},actions:['メソポタミア農地へのNB灌漑導入','塩類集積土壌対策にNB水＋バイオ炭','ナツメヤシ農園での有機農業認証','農業インフラ復興への国際支援獲得','土壌健全性モニタリングの整備']},
+  {id:'jordan',flag:'🇯🇴',name:'ヨルダン',risk:'medium',lat:31,lon:36,fertDep:82,popGrowth:6,importRisk:84,scarcityNow:78,crop:'トマト・オリーブ・小麦・柑橘類',issues:['水不足が世界最深刻レベル','化学肥料のほぼ全量を輸入','農地面積が極めて少ない（国土の3%以下）','難民流入で食料需要が増加'],nb:{ap:'精密灌漑・温室農業',eff:'水使用35〜45%削減・肥料節約25%',note:'世界最高水準の節水が必要な環境でNBが最大の効果。精密滴灌との組み合わせが不可欠。'},actions:['精密滴灌×ナノバブルで水使用量を極限まで削減','温室農業でのNB養液栽培拡大','下水再生水×NBで農業用水を確保','オリーブ農園での有機認証取得','デッドシー鉱物を活用したカリウム肥料の国産化']},
+  {id:'morocco',flag:'🇲🇦',name:'モロッコ',risk:'low',lat:32,lon:-6,fertDep:30,popGrowth:8,importRisk:33,scarcityNow:28,crop:'小麦・オリーブ・柑橘類・サトウダイコン',issues:['リン酸塩は世界最大埋蔵量だが国内農業への還元が課題','干ばつによる食料生産の年間変動が激しい','農業用水の確保が課題','農村の若者流出で農業後継者不足'],nb:{ap:'節水農業・オリーブ農園',eff:'水使用25〜30%削減・品質向上',note:'リン資源大国として世界に肥料を輸出しつつ、国内農業にNBで節水・増収を実現。'},actions:['国内農業へのリン肥料優先供給','オリーブ農園でのNB水散布・品質向上','乾燥地帯向け精密滴灌×ナノバブル','有機農業認証でEU向け輸出付加価値化','農村若者の農業就労支援と技術教育']},
+  {id:'algeria',flag:'🇩🇿',name:'アルジェリア',risk:'medium',lat:28,lon:3,fertDep:65,popGrowth:8,importRisk:68,scarcityNow:60,crop:'小麦・大麦・オリーブ・ナツメヤシ',issues:['化学肥料の輸入依存が高い','水資源の不足（サハラ以北）','農業生産性が低い','農業への投資が資源収入に依存'],nb:{ap:'乾燥地帯農業・灌漑',eff:'水使用25〜30%削減・肥料節約20%',note:'サハラ縁辺の農業にNB水が有効。少ない水で食料生産を維持する技術が急務。'},actions:['サハラ農業向けNB精密灌漑','ナツメヤシ農園での有機農業認証','下水再生水×NBで農業用水補強','農業廃棄物の堆肥化推進','輸出農産物の有機認証取得（EU向け）']},
+  {id:'tunisia',flag:'🇹🇳',name:'チュニジア',risk:'medium',lat:34,lon:9,fertDep:60,popGrowth:5,importRisk:62,scarcityNow:55,crop:'オリーブ・小麦・大麦・柑橘類',issues:['化学肥料の輸入依存','干ばつ・砂漠化が進行','農業生産性の停滞','農村の若者流出'],nb:{ap:'オリーブ農園・灌漑農業',eff:'肥料節約18〜25%・品質向上',note:'地中海農業のNB導入先進モデルとなり得る。オリーブオイルの有機認証取得に直結。'},actions:['オリーブ農園でのNB水散布・有機認証取得','精密灌漑×ナノバブルで水使用量削減','農業廃棄物の堆肥化・バイオ炭施用','EU農業技術協力プログラムへの参加','砂漠化防止緑地帯への参加']},
+  {id:'democratic_republic_congo',flag:'🇨🇩',name:'コンゴ民主共和国',risk:'critical',lat:-4,lon:24,fertDep:92,popGrowth:25,importRisk:95,scarcityNow:90,crop:'キャッサバ・トウモロコシ・コーヒー・コバルト',issues:['化学肥料ほぼ全量輸入。外貨不足と紛争で深刻','人口爆発（2050年頃3億人超）で食料需要急増','農業インフラが紛争で崩壊','熱帯雨林の消失で土壌劣化が深刻'],nb:{ap:'太陽光MB・コミュニティ農業',eff:'肥料節約15〜20%',note:'電力・インフラ問題が大きい。太陽光発電型MB装置をコミュニティ単位で共有する形が現実的。'},actions:['太陽光マイクロバブル装置のコミュニティ展開','農業廃棄物の堆肥化組織化','アグロフォレストリーで土壌改善','国際支援機関との連携強化','紛争後農地復興への有機農業導入']},
+  {id:'sudan',flag:'🇸🇩',name:'スーダン',risk:'critical',lat:15,lon:30,fertDep:90,popGrowth:18,importRisk:93,scarcityNow:88,crop:'モロコシ・ゴマ・綿花・落花生',issues:['化学肥料ほぼ全量輸入。外貨不足と紛争で深刻','農業インフラが著しく未整備','干ばつ・砂漠化が深刻化','農業生産性が世界最低水準'],nb:{ap:'太陽光MB・乾燥地農業',eff:'肥料節約15〜20%',note:'乾燥地帯でのNB導入。電力インフラ問題を太陽光で補完。'},actions:['FAO緊急支援と連携した有機農業導入','太陽光マイクロバブル装置の緊急展開','モロコシ等耐乾燥作物の品種改良×有機農業','農業廃棄物の堆肥化','アフリカ開発銀行との農業融資連携']},
+  {id:'mozambique',flag:'🇲🇿',name:'モザンビーク',risk:'critical',lat:-18,lon:35,fertDep:92,popGrowth:22,importRisk:94,scarcityNow:88,crop:'カシューナッツ・サトウキビ・綿花・タバコ',issues:['化学肥料ほぼ全量輸入。最貧国レベルの資金力','サイクロン・洪水による農地被害が繰り返し発生','農業インフラが著しく未整備','人口増加と食料不足の悪循環'],nb:{ap:'太陽光MB・気候変動対応農業',eff:'肥料節約15〜20%',note:'サイクロン被害後の農業回復にNBが有効。太陽光発電型でインフラ問題を克服。'},actions:['気候変動対応農業へのNB技術導入','農業廃棄物の堆肥化組織化','カシューナッツの有機認証取得','太陽光マイクロバブル装置の農村展開','国際支援機関との連携強化']},
+  {id:'zambia',flag:'🇿🇲',name:'ザンビア',risk:'high',lat:-13,lon:28,fertDep:82,popGrowth:20,importRisk:84,scarcityNow:78,crop:'トウモロコシ・タバコ・コーヒー・綿花',issues:['化学肥料の80%以上を輸入依存','トウモロコシ単作で土壌劣化が深刻','人口増加で食料安保が悪化','農村インフラが脆弱'],nb:{ap:'太陽光MB・灌漑農業',eff:'肥料節約15〜22%',note:'トウモロコシ農業の多様化とNB灌漑の組み合わせが有効。'},actions:['トウモロコシ単作から多様化（マメ科導入）','太陽光マイクロバブル灌漑の農村展開','堆肥化の組織化','コーヒー・タバコの有機認証取得','農業廃棄物のバイオガス化']},
+  {id:'zimbabwe',flag:'🇿🇼',name:'ジンバブエ',risk:'critical',lat:-20,lon:30,fertDep:88,popGrowth:8,importRisk:90,scarcityNow:85,crop:'タバコ・トウモロコシ・綿花・コーヒー',issues:['経済危機で化学肥料が入手困難','農地改革の混乱で農業生産力が低下','干ばつ・洪水のリスクが高い','農業インフラが著しく劣化'],nb:{ap:'太陽光MB・耐干ばつ農業',eff:'肥料節約15〜20%',note:'低コスト太陽光MB装置で肥料コストを削減しながら収量維持。'},actions:['太陽光マイクロバブル装置の農村展開','伝統的な輪作・休耕の復活','農業廃棄物の堆肥化','タバコから食料作物への転換支援','国際農業支援獲得のための政策改善']},
+  {id:'colombia',flag:'🇨🇴',name:'コロンビア',risk:'medium',lat:4,lon:-74,fertDep:58,popGrowth:8,importRisk:62,scarcityNow:55,crop:'コーヒー・バナナ・花卉・サトウキビ',issues:['化学肥料の輸入依存が高い','農村の安全問題が農業投資を阻む','土壌侵食・違法農業開発が進行','農業の近代化と環境保全のバランス'],nb:{ap:'コーヒー農園・花卉農業',eff:'肥料節約18〜25%・品質向上',note:'コロンビアコーヒーのプレミアム輸出にNB水が品質向上で貢献。花卉輸出農業でも先行導入が進む。'},actions:['コーヒー農園でのNB水散布・有機認証取得','花卉農業でのナノバブル養液栽培','農業廃棄物の堆肥化・バイオガス化','バナナ農業でのバイオ肥料導入','農村平和構築と農業近代化の連携']},
+  {id:'peru',flag:'🇵🇪',name:'ペルー',risk:'high',lat:-10,lon:-76,fertDep:68,popGrowth:8,importRisk:70,scarcityNow:65,crop:'アスパラガス・コーヒー・ジャガイモ・キヌア',issues:['化学肥料の輸入依存が高い','アンデス高地の農業技術近代化が遅れている','水資源の地域偏在（太平洋岸は乾燥）','農村貧困が深刻'],nb:{ap:'アンデス農業・精密灌漑',eff:'肥料節約18〜25%',note:'キヌア・ジャガイモの有機農業にNBが有効。アンデス高地の少ない水資源を最大活用。'},actions:['キヌア・コーヒーの有機認証取得で輸出付加価値向上','アンデス農業へのNB精密灌漑','農業廃棄物の堆肥化','アスパラガス農業での養液栽培×NB','農村貧困対策と農業近代化の連携']},
+  {id:'chile',flag:'🇨🇱',name:'チリ',risk:'low',lat:-36,lon:-71,fertDep:48,popGrowth:5,importRisk:50,scarcityNow:42,crop:'ブドウ・リンゴ・サクランボ・サケ',issues:['化学肥料の輸入依存','乾燥地帯（アタカマ砂漠）の水不足','農業用水の競合','土壌侵食が進行'],nb:{ap:'ワイン農業・精密灌漑',eff:'肥料節約18〜25%・品質向上',note:'チリワインの輸出価値向上にNBが貢献。乾燥地帯での節水農業との組み合わせが有効。'},actions:['ワイン農業でのNB水散布・品質向上','精密灌漑×ナノバブルで水資源節約','農業廃棄物の堆肥化','果物農業の有機認証取得','砂漠農業開発へのNB技術活用']},
+  {id:'venezuela',flag:'🇻🇪',name:'ベネズエラ',risk:'high',lat:8,lon:-66,fertDep:75,popGrowth:5,importRisk:78,scarcityNow:72,crop:'米・トウモロコシ・サトウキビ・カカオ',issues:['経済危機で化学肥料が入手困難','農業インフラが崩壊状態','食料不足が深刻','農業人材の国外流出'],nb:{ap:'太陽光MB・農業復興',eff:'肥料節約15〜22%',note:'経済危機下での農業復興にNBが有効。低コストで肥料代替効果を高める技術が急務。'},actions:['農業復興計画へのNB技術導入','カカオの有機認証取得で輸出再建','農業廃棄物の堆肥化組織化','マメ科輪作で土壌窒素固定','国際農業支援獲得のための政策改善']},
+  {id:'ecuador',flag:'🇪🇨',name:'エクアドル',risk:'medium',lat:0,lon:-78,fertDep:60,popGrowth:6,importRisk:63,scarcityNow:56,crop:'バナナ・カカオ・エビ・コーヒー',issues:['化学肥料の輸入依存が高い','バナナ農業の単作で土壌劣化','農薬・肥料の過剰使用が環境問題','農業の多様化が課題'],nb:{ap:'バナナ農園・カカオ農業',eff:'肥料節約18〜25%・品質向上',note:'有機カカオのプレミアム輸出にNBが貢献。バナナ農業でのNB水散布で病害対策にも期待。'},actions:['有機カカオ農園でのNB水散布・認証取得','バナナ農業への精密施肥×ナノバブル','農業廃棄物の堆肥化','エビ養殖でのNBエアレーション活用','農業多様化支援プログラム']},
+  {id:'bolivia',flag:'🇧🇴',name:'ボリビア',risk:'high',lat:-17,lon:-65,fertDep:72,popGrowth:10,importRisk:75,scarcityNow:68,crop:'大豆・サトウキビ・キヌア・コカ',issues:['化学肥料の輸入依存が高い','農村貧困が深刻','アンデス高地の農業技術が遅れている','土壌侵食・農地転換が進行'],nb:{ap:'アンデス農業・有機農業',eff:'肥料節約18〜25%',note:'キヌアの有機認証農業にNBが有効。先住民族の伝統農業との融合で持続可能な農業を実現。'},actions:['キヌアの有機認証取得で輸出付加価値向上','先住民族の伝統農業×NB技術の融合','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','アンデス農業開発への国際支援獲得']},
+  {id:'paraguay',flag:'🇵🇾',name:'パラグアイ',risk:'medium',lat:-23,lon:-58,fertDep:62,popGrowth:10,importRisk:65,scarcityNow:58,crop:'大豆・トウモロコシ・小麦・牛肉',issues:['化学肥料の輸入依存が高い','大豆単作で土壌劣化が深刻','農地集中化で小農家が排除されている','農業の近代化と環境保全のバランス'],nb:{ap:'大規模農業・灌漑',eff:'肥料節約18〜25%',note:'大豆農業へのNB灌漑で肥料コスト削減。根粒菌接種との組み合わせで化学窒素肥料を大幅削減。'},actions:['大豆根粒菌接種の全国標準化','カバークロップ輪作で土壌有機物回復','灌漑にナノバブル発生装置を統合','小農家支援の有機農業プログラム','農業廃棄物のバイオガス化']},
+  {id:'spain',flag:'🇪🇸',name:'スペイン',risk:'low',lat:40,lon:-4,fertDep:42,popGrowth:2,importRisk:44,scarcityNow:35,crop:'小麦・オリーブ・オレンジ・ブドウ',issues:['カリウム・リン酸系肥料の輸入依存','水不足（特に南部）が農業に影響','EU農業環境規制への対応コスト','農業の担い手不足'],nb:{ap:'オリーブ農園・精密灌漑',eff:'肥料節約18〜25%・品質向上',note:'EU農業研究でNB技術の検証が進行。オリーブオイル・ワインの品質向上に直結。'},actions:['EU Farm to Fork政策に沿った有機農業推進','オリーブ・ワイン農業でのNB水散布','精密灌漑×ナノバブルで南部の水不足対応','農業廃棄物のバイオガス化・液肥利用','有機農業輸出の付加価値強化']},
+  {id:'italy',flag:'🇮🇹',name:'イタリア',risk:'low',lat:42,lon:12,fertDep:40,popGrowth:1,importRisk:42,scarcityNow:33,crop:'小麦・ブドウ・オリーブ・トマト',issues:['カリウム・リン酸系肥料の輸入依存','農地の分散で大規模化が難しい','EU農業環境規制への対応','農業後継者不足'],nb:{ap:'ワイン農業・施設園芸',eff:'肥料節約18〜25%・品質向上',note:'イタリアワイン・オリーブオイルの品質向上にNBが貢献。施設園芸でのトマト農業でも先行導入。'},actions:['ワイン・オリーブオイルの高品質化にNB水活用','施設園芸（トマト・野菜）でのNB養液栽培','農業廃棄物のバイオガス化','EU有機農業補助金の最大活用','地中海農業モデルの輸出・国際展開']},
+  {id:'poland',flag:'🇵🇱',name:'ポーランド',risk:'low',lat:52,lon:20,fertDep:38,popGrowth:2,importRisk:40,scarcityNow:32,crop:'小麦・ライ麦・ビート・じゃがいも',issues:['カリウム・リン酸系肥料の一部を輸入','ロシア産天然ガス依存（窒素肥料製造）が課題','EU農業政策への対応','農業の近代化と農村地域の活性化'],nb:{ap:'精密農業・灌漑',eff:'肥料節約18〜25%',note:'EU農業研究でNB技術の検証。中東欧農業の近代化モデルとして先行展開が期待。'},actions:['EU Farm to Fork政策に沿った有機農業','精密農業×ナノバブルで化学肥料削減','農業廃棄物のバイオガス化・液肥利用','ロシア産天然ガス依存脱却','有機農業輸出の付加価値強化']},
+  {id:'romania',flag:'🇷🇴',name:'ルーマニア',risk:'low',lat:46,lon:25,fertDep:40,popGrowth:1,importRisk:42,scarcityNow:35,crop:'小麦・トウモロコシ・ひまわり・ブドウ',issues:['化学肥料の輸入依存が一部ある','EU農業政策への対応が課題','農業の近代化が遅れている','農村の若者流出'],nb:{ap:'精密農業・灌漑',eff:'肥料節約18〜22%',note:'EU農業近代化投資と組み合わせたNB導入が現実的。ワイン農業での先行適用も期待。'},actions:['EU農業近代化資金でNB精密農業導入','ワイン農業でのNB水散布・品質向上','農業廃棄物のバイオガス化','有機農業輸出の付加価値強化','若者の農業回帰に向けたスマート農業推進']},
+  {id:'kazakhstan',flag:'🇰🇿',name:'カザフスタン',risk:'medium',lat:48,lon:68,fertDep:38,popGrowth:5,importRisk:40,scarcityNow:35,crop:'小麦・大麦・ひまわり・棉花',issues:['一部化学肥料の輸入依存','農業用水の過剰利用（アラル海問題）','土壌侵食・塩類集積','農業の近代化が遅れている'],nb:{ap:'精密農業・大規模灌漑',eff:'肥料節約18〜25%・水使用削減',note:'アラル海危機の教訓を活かしたNB節水農業が重要。センターピボット灌漑にNBを統合。'},actions:['アラル海流域の節水農業×ナノバブル','大規模農業でのセンターピボット灌漑にNB統合','農業廃棄物のバイオガス化','土壌侵食対策に不耕起栽培×バイオ炭','有機農業輸出ブランドの確立']},
+  {id:'uzbekistan',flag:'🇺🇿',name:'ウズベキスタン',risk:'medium',lat:41,lon:64,fertDep:60,popGrowth:8,importRisk:63,scarcityNow:56,crop:'綿花・小麦・野菜・果物',issues:['化学肥料の輸入依存','綿花単作による土壌疲弊','水資源の過剰利用（アラル海問題）','農業の近代化が急務'],nb:{ap:'綿花農業・精密灌漑',eff:'肥料節約18〜25%・水使用削減',note:'アラル海危機の直接的な影響を受ける地域。NB節水農業が環境回復と食料安保を両立させる鍵。'},actions:['綿花から食料作物への転換支援','NB精密灌漑でアラル海流域の水使用削減','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','EU・中央アジア農業技術協力への参加']},
+  {id:'cameroon',flag:'🇨🇲',name:'カメルーン',risk:'high',lat:4,lon:12,fertDep:80,popGrowth:18,importRisk:82,scarcityNow:76,crop:'カカオ・コーヒー・バナナ・棉花',issues:['化学肥料の80%以上を輸入依存','農業インフラが未整備','人口増加と食料不足','カカオ農業の土壌疲弊'],nb:{ap:'カカオ農園・太陽光MB',eff:'肥料節約15〜22%・品質向上',note:'カカオのプレミアム輸出にNBが貢献。太陽光MB装置で農村電力問題を克服。'},actions:['カカオ農園でのNB水散布・有機認証取得','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','アグロフォレストリーで土壌改善','国際カカオ機関との連携強化']},
+  {id:'angola',flag:'🇦🇴',name:'アンゴラ',risk:'high',lat:-12,lon:18,fertDep:82,popGrowth:15,importRisk:84,scarcityNow:78,crop:'コーヒー・サイザル麻・綿花・キャッサバ',issues:['化学肥料のほぼ全量を輸入依存','農業インフラが内戦被害から回復途上','農業労働力が不足','土地地雷問題が農業を阻害'],nb:{ap:'太陽光MB・農業復興',eff:'肥料節約15〜20%',note:'内戦後の農業復興にNBが有効。太陽光発電型MB装置でインフラ問題を克服。'},actions:['農業復興計画へのNB技術導入','コーヒーの有機認証取得で輸出再建','農業廃棄物の堆肥化組織化','太陽光マイクロバブル装置の農村展開','国際農業支援獲得']},
+  {id:'senegal',flag:'🇸🇳',name:'セネガル',risk:'high',lat:14,lon:-14,fertDep:80,popGrowth:18,importRisk:82,scarcityNow:76,crop:'落花生・キビ・コメ・綿花',issues:['化学肥料のほぼ全量を輸入依存','干ばつ・砂漠化が進行','農村の若者流出','食料自給率が低下'],nb:{ap:'太陽光MB・乾燥地農業',eff:'肥料節約15〜22%',note:'サヘル地帯の乾燥農業にNBが有効。少ない水で食料生産を維持する技術が急務。'},actions:['太陽光マイクロバブル装置の農村展開','アグロフォレストリー（グレート・グリーン・ウォール参加）','農業廃棄物の堆肥化','落花生の有機認証取得','西アフリカ農業協力への参加']},
+  {id:'ivory_coast',flag:'🇨🇮',name:'コートジボワール',risk:'medium',lat:8,lon:-6,fertDep:65,popGrowth:18,importRisk:68,scarcityNow:62,crop:'カカオ・コーヒー・パーム油・バナナ',issues:['化学肥料の輸入依存が高い','カカオ農業の土壌疲弊が深刻','農業インフラが未整備','農業の多様化が課題'],nb:{ap:'カカオ農園・太陽光MB',eff:'肥料節約15〜22%・品質向上',note:'世界最大のカカオ生産国として、有機認証カカオのプレミアム輸出にNBが貢献。'},actions:['カカオ農園でのNB水散布・有機認証取得','太陽光マイクロバブル装置の農村展開','パーム油廃棄物の堆肥化','農業廃棄物のバイオガス化','国際カカオ機関との持続可能性目標達成']},
+  {id:'madagascar',flag:'🇲🇬',name:'マダガスカル',risk:'critical',lat:-20,lon:47,fertDep:90,popGrowth:22,importRisk:92,scarcityNow:88,crop:'バニラ・コーヒー・ライチ・米',issues:['化学肥料のほぼ全量を輸入依存','生物多様性が豊富だが農業が原始的','人口急増と食料不足','サイクロン被害が繰り返し発生'],nb:{ap:'太陽光MB・有機農業',eff:'肥料節約15〜22%',note:'バニラ・コーヒーの有機認証農業にNBが有効。生物多様性保護と農業近代化を両立。'},actions:['バニラ・コーヒーの有機認証取得で輸出付加価値向上','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','サイクロン後農地回復へのNB活用','生物多様性保護型農業の推進']},
+  {id:'new_zealand',flag:'🇳🇿',name:'ニュージーランド',risk:'low',lat:-41,lon:174,fertDep:45,popGrowth:5,importRisk:48,scarcityNow:38,crop:'牧草・小麦・キウイ・リンゴ',issues:['リン・カリウムの輸入依存','集約的畜産による水質汚染','農業の炭素排出削減が課題','農業と環境保全のバランス'],nb:{ap:'精密農業・牧草農業',eff:'肥料節約18〜25%・水質改善',note:'牧草農業でのNB灌漑が土壌微生物を活性化。環境負荷低減に直結。'},actions:['牧草農業へのNB水導入で土壌微生物活性化','リン肥料の精密施肥で水質汚染防止','キウイ・リンゴの有機農業認証取得','農業廃棄物の堆肥化・バイオガス化','農業炭素排出削減目標への対応']},
+  {id:'netherlands',flag:'🇳🇱',name:'オランダ',risk:'low',lat:52,lon:5,fertDep:35,popGrowth:2,importRisk:37,scarcityNow:28,crop:'野菜・花卉・チューリップ・乳製品',issues:['小国だが農業輸出大国（世界2位）','化学肥料・農薬規制が厳格化','水管理コストが高い','農地面積の制約'],nb:{ap:'施設園芸・水耕栽培',eff:'肥料節約25〜35%・品質向上',note:'施設園芸先進国としてNB養液栽培を世界に先駆けて実装。輸出農産物の品質向上に直結。'},actions:['温室園芸でのNB養液栽培を世界標準に','花卉農業でのNB水散布・品質向上','農業廃棄物のバイオガス化','精密施肥×ナノバブルで化学肥料削減','オランダ農業モデルの国際展開・技術輸出']},
+  {id:'belgium',flag:'🇧🇪',name:'ベルギー',risk:'low',lat:51,lon:4,fertDep:38,popGrowth:2,importRisk:40,scarcityNow:30,crop:'小麦・テンサイ・ジャガイモ・チコリ',issues:['EU農業環境規制への対応','化学肥料の一部輸入依存','農地の分散化','農業後継者不足'],nb:{ap:'精密農業・施設園芸',eff:'肥料節約18〜25%',note:'EU農業研究の中心地としてNB技術の先行実証が進む。'},actions:['EU Farm to Fork政策推進','精密農業×ナノバブルで化学肥料削減','農業廃棄物のバイオガス化','有機農業輸出の付加価値強化','EU農業研究プログラムへの参加']},
+  {id:'sweden',flag:'🇸🇪',name:'スウェーデン',risk:'low',lat:63,lon:15,fertDep:32,popGrowth:3,importRisk:34,scarcityNow:25,crop:'大麦・小麦・じゃがいも・菜種',issues:['寒冷気候で農業期間が短い','化学肥料の一部輸入依存','EU農業政策への対応','農業の担い手不足'],nb:{ap:'精密農業',eff:'肥料節約18〜22%',note:'環境先進国としてNB農業技術の早期実証・普及が期待される。'},actions:['EU有機農業目標の先行達成','精密農業×ナノバブルで化学肥料削減','農業廃棄物のバイオガス化','有機農業輸出の付加価値強化','スウェーデン農業技術の国際展開']},
+  {id:'norway',flag:'🇳🇴',name:'ノルウェー',risk:'low',lat:60,lon:10,fertDep:30,popGrowth:3,importRisk:32,scarcityNow:22,crop:'大麦・じゃがいも・果物・サケ',issues:['寒冷気候で農業に制限がある','化学肥料の一部輸入依存','農業面積が国土の3%と少ない','輸入食料への依存が高い'],nb:{ap:'サケ養殖・施設農業',eff:'肥料節約18〜25%',note:'サケ養殖でのNBエアレーションが溶存酸素増加に有効。施設農業での省肥料栽培も期待。'},actions:['サケ養殖でのNBエアレーション実装','施設農業でのNB養液栽培','農業廃棄物のバイオガス化','海藻農業の拡大（海洋有機肥料源）','北極農業技術の国際展開']},
+  {id:'denmark',flag:'🇩🇰',name:'デンマーク',risk:'low',lat:56,lon:10,fertDep:33,popGrowth:2,importRisk:35,scarcityNow:26,crop:'大麦・小麦・菜種・豚',issues:['化学肥料の一部輸入依存','豚農業による地下水硝酸塩汚染','EU農業環境規制への対応','農業の炭素排出削減が課題'],nb:{ap:'精密農業・施設園芸',eff:'肥料節約18〜22%',note:'豚糞液肥のNB処理で臭気・水質問題も改善。農業技術先進国としてNBの先行実証が進む。'},actions:['豚糞液肥のNB処理で臭気・水質改善','精密農業×ナノバブルで硝酸塩汚染防止','EU有機農業目標の先行達成','農業廃棄物のバイオガス化','デンマーク農業技術の国際輸出']},
+  {id:'austria',flag:'🇦🇹',name:'オーストリア',risk:'low',lat:48,lon:14,fertDep:35,popGrowth:2,importRisk:37,scarcityNow:28,crop:'小麦・トウモロコシ・ワイン・野菜',issues:['化学肥料の一部輸入依存','EU農業環境規制への対応','山岳農業の維持コストが高い','有機農業の普及は進んでいるが経済性が課題'],nb:{ap:'ワイン農業・精密農業',eff:'肥料節約18〜25%・品質向上',note:'EU有機農業先進国。ワイン農業でのNB水散布が品質向上に貢献。'},actions:['EU有機農業目標の先行達成','ワイン農業でのNB水散布・品質向上','農業廃棄物のバイオガス化','精密農業×ナノバブルで化学肥料削減','オーストリア有機農業モデルの国際展開']},
+  {id:'switzerland',flag:'🇨🇭',name:'スイス',risk:'low',lat:47,lon:8,fertDep:32,popGrowth:2,importRisk:34,scarcityNow:25,crop:'小麦・じゃがいも・ワイン・乳製品',issues:['化学肥料の一部輸入依存','農地面積が限られている','農業補助金コストが高い','輸入食料への依存'],nb:{ap:'精密農業・施設農業',eff:'肥料節約18〜25%',note:'農業技術先進国として精密農業×NBの先行実証。スイス農業の環境負荷低減に直結。'},actions:['精密農業×ナノバブルで化学肥料削減','ワイン農業でのNB水散布','農業廃棄物のバイオガス化','有機農業の経済性向上支援','スイス農業技術の国際輸出']},
+  {id:'czechia',flag:'🇨🇿',name:'チェコ',risk:'low',lat:50,lon:15,fertDep:38,popGrowth:2,importRisk:40,scarcityNow:30,crop:'小麦・大麦・菜種・ビート',issues:['化学肥料の一部輸入依存','EU農業環境規制への対応','農業の近代化が進行中','農業後継者不足'],nb:{ap:'精密農業',eff:'肥料節約18〜22%',note:'EU農業近代化資金を活用したNB精密農業の導入が進む。'},actions:['EU農業近代化資金でNB精密農業導入','農業廃棄物のバイオガス化','有機農業輸出の付加価値強化','若者の農業回帰にスマート農業推進','EU農業研究プログラムへの参加']},
+  {id:'hungary',flag:'🇭🇺',name:'ハンガリー',risk:'low',lat:47,lon:19,fertDep:40,popGrowth:2,importRisk:42,scarcityNow:32,crop:'小麦・トウモロコシ・ひまわり・ブドウ',issues:['化学肥料の一部輸入依存','EU農業政策への対応','農業の近代化が遅れている','農村の若者流出'],nb:{ap:'精密農業・ワイン農業',eff:'肥料節約18〜25%',note:'EU農業近代化でNB精密農業の導入。ワイン農業での先行適用も有効。'},actions:['EU農業近代化資金でNB精密農業導入','ワイン農業でのNB水散布','農業廃棄物のバイオガス化','有機農業輸出の付加価値強化','EU農業研究プログラムへの参加']},
+  {id:'portugal',flag:'🇵🇹',name:'ポルトガル',risk:'low',lat:40,lon:-8,fertDep:42,popGrowth:2,importRisk:44,scarcityNow:35,crop:'ワイン・オリーブ・コルク・トマト',issues:['化学肥料の輸入依存','水不足（南部）が農業に影響','農業後継者不足','EU農業環境規制への対応'],nb:{ap:'ワイン・オリーブ農業',eff:'肥料節約18〜25%・品質向上',note:'ポルトガルワイン・オリーブオイルの品質向上にNBが貢献。南部の水不足対策にも有効。'},actions:['ワイン・オリーブ農業でのNB水散布','精密灌漑×ナノバブルで南部の水不足対応','農業廃棄物の堆肥化','有機農業輸出の付加価値強化','EU農業環境目標の達成']},
+  {id:'greece',flag:'🇬🇷',name:'ギリシャ',risk:'low',lat:39,lon:22,fertDep:45,popGrowth:2,importRisk:47,scarcityNow:38,crop:'オリーブ・ブドウ・小麦・オレンジ',issues:['化学肥料の輸入依存','水不足（特に島嶼部）が農業に影響','農業後継者不足','EU農業環境規制への対応'],nb:{ap:'オリーブ・ワイン農業',eff:'肥料節約18〜25%・品質向上',note:'ギリシャオリーブオイル・ワインの品質向上にNBが貢献。島嶼農業での節水効果も大きい。'},actions:['オリーブ・ワイン農業でのNB水散布','島嶼部での精密灌漑×ナノバブル（節水）','農業廃棄物の堆肥化','有機農業輸出の付加価値強化（EU向け）','EU農業環境目標の達成']},
+  {id:'israel',flag:'🇮🇱',name:'イスラエル',risk:'low',lat:31,lon:34,fertDep:50,popGrowth:5,importRisk:52,scarcityNow:42,crop:'柑橘類・野菜・花卉・ブドウ',issues:['化学肥料の輸入依存','水不足（世界最先端の節水農業を開発済み）','農地面積が極めて少ない','農業技術輸出が主要産業'],nb:{ap:'精密灌漑・施設農業',eff:'肥料節約25〜35%',note:'世界最先端のドリップ灌漑技術の開発国。NB技術との融合で世界農業技術をさらに進歩させる立場。'},actions:['ドリップ灌漑×ナノバブルを世界標準技術に','施設農業でのNB養液栽培の世界展開','農業廃棄物のバイオガス化','下水再生水×NB農業の技術輸出','世界農業危機への技術支援（アフリカ・アジア向け）']},
+  {id:'cuba',flag:'🇨🇺',name:'キューバ',risk:'medium',lat:22,lon:-80,fertDep:62,popGrowth:3,importRisk:65,scarcityNow:58,crop:'サトウキビ・タバコ・柑橘類・米',issues:['経済制裁で化学肥料の輸入が制限','農業技術が1990年代以降停滞','食料不足が継続','農業の担い手不足'],nb:{ap:'有機農業・都市農業',eff:'肥料節約18〜25%',note:'制裁下での農業を有機農業で乗り切った経験を持つ。都市農業×NBで食料自給率向上。'},actions:['都市農業（オルガノポニコス）でのNB養液栽培','有機農業の国際輸出モデルとして展開','農業廃棄物の堆肥化','マメ科輪作で窒素固定','農業技術の中南米諸国への輸出']},
+  {id:'dominican_republic',flag:'🇩🇴',name:'ドミニカ共和国',risk:'medium',lat:19,lon:-70,fertDep:65,popGrowth:8,importRisk:68,scarcityNow:60,crop:'サトウキビ・コーヒー・カカオ・タバコ',issues:['化学肥料の輸入依存が高い','ハリケーン・気候変動リスク','農業の多様化が課題','農業インフラが脆弱'],nb:{ap:'カカオ・コーヒー農業',eff:'肥料節約15〜22%・品質向上',note:'有機カカオのプレミアム輸出にNBが貢献。ハリケーン後の農業回復にも有効。'},actions:['有機カカオ・コーヒーの認証取得でプレミアム輸出','気候変動対応型農業へのNB技術導入','農業廃棄物の堆肥化','ハリケーン後農地回復の迅速化','観光農業との連携']},
+  {id:'haiti',flag:'🇭🇹',name:'ハイチ',risk:'critical',lat:19,lon:-73,fertDep:92,popGrowth:12,importRisk:95,scarcityNow:90,crop:'コーヒー・マンゴー・サトウキビ・バナナ',issues:['最貧国で化学肥料を購入する資金がない','農業インフラが地震・ハリケーンで壊滅','農業技術・知識が極めて限られている','政情不安で農業投資が不可能'],nb:{ap:'太陽光MB・コミュニティ農業',eff:'肥料節約15〜20%',note:'人道支援の観点からコミュニティ共同利用型の太陽光MB装置が最優先。'},actions:['人道支援と組み合わせたNB農業技術導入','コーヒー・マンゴーの有機認証取得','農業廃棄物の堆肥化組織化','太陽光マイクロバブル装置のNGO連携展開','農業後継者育成プログラム']},
+  {id:'afghanistan',flag:'🇦🇫',name:'アフガニスタン',risk:'critical',lat:33,lon:65,fertDep:92,popGrowth:12,importRisk:95,scarcityNow:90,crop:'小麦・綿花・果物',issues:['紛争・政治混乱で農業インフラが崩壊','化学肥料のほぼ全量を輸入依存','干ばつ・洪水が頻発','農業労働力の流出'],nb:{ap:'太陽光MB・緊急農業支援',eff:'肥料節約15〜20%',note:'人道的観点からの緊急農業支援が最優先。太陽光MB装置でインフラ問題を克服。'},actions:['人道支援と連携した有機農業技術導入','太陽光マイクロバブル装置の農村展開','マメ科輪作で土壌窒素固定','農業廃棄物の堆肥化','国際農業支援獲得のための連携']},
+  {id:'syria',flag:'🇸🇾',name:'シリア',risk:'high',lat:35,lon:38,fertDep:78,popGrowth:5,importRisk:82,scarcityNow:78,crop:'小麦・綿花・オリーブ・タバコ',issues:['紛争で農業インフラが壊滅的打撃','化学肥料の調達が困難','農業労働力の大量流出','農地の地雷汚染'],nb:{ap:'太陽光MB・農業復興',eff:'肥料節約15〜22%',note:'紛争後農業復興にNBが有効。国際支援と組み合わせた段階的展開が必要。'},actions:['農業復興計画へのNB技術導入','オリーブ農園の再生×有機認証','農業廃棄物の堆肥化','地雷除去後の農業再開に有機農業を優先','国際農業支援機関との連携']},
+  {id:'yemen',flag:'🇾🇪',name:'イエメン',risk:'critical',lat:16,lon:44,fertDep:96,popGrowth:8,importRisk:97,scarcityNow:95,crop:'コーヒー（モカ）・綿花・魚',issues:['深刻な人道危機（世界最悪の食料危機のひとつ）','農業インフラが紛争で壊滅','化学肥料の調達が不可能','農業労働力の流出'],nb:{ap:'緊急人道支援×太陽光MB',eff:'肥料節約15〜20%',note:'最優先の人道的農業支援。モカコーヒーの有機農業は復興後の経済再建の柱になり得る。'},actions:['人道支援と連携した緊急農業支援','モカコーヒーの有機認証で紛争後輸出再建','太陽光マイクロバブル装置のNGO展開','農業廃棄物の堆肥化','国際農業支援獲得']},
+  {id:'myanmar2',flag:'🇲🇲',name:'ラオス',risk:'high',lat:18,lon:103,fertDep:78,popGrowth:10,importRisk:80,scarcityNow:72,crop:'米・コーヒー・スズ・木材',issues:['化学肥料の輸入依存が高い','農業インフラが未整備','農村の貧困が深刻','急速な農地転換（農林バランスの悪化）'],nb:{ap:'稲作・コーヒー農園',eff:'肥料節約18〜25%',note:'メコン川流域稲作にNBが有効。コーヒーの有機認証取得で輸出付加価値向上。'},actions:['メコン川稲作へのNB灌漑導入','コーヒー農園での有機認証取得','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援機関との連携']},
+  {id:'timor_leste',flag:'🇹🇱',name:'東ティモール',risk:'critical',lat:8,lon:126,fertDep:90,popGrowth:15,importRisk:92,scarcityNow:88,crop:'コーヒー・米・トウモロコシ・サゴヤシ',issues:['化学肥料のほぼ全量を輸入依存','農業インフラが著しく未整備','農業技術が限られている','食料自給率が低い'],nb:{ap:'太陽光MB・有機農業',eff:'肥料節約15〜22%',note:'コーヒーの有機認証輸出が国家収入の柱。NB水散布でコーヒー品質をさらに向上。'},actions:['有機コーヒー農園でのNB水散布・認証強化','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援との連携']},
+  {id:'papua_new_guinea',flag:'🇵🇬',name:'パプアニューギニア',risk:'medium',lat:-6,lon:147,fertDep:70,popGrowth:15,importRisk:72,scarcityNow:65,crop:'カカオ・コーヒー・パーム油・コプラ',issues:['化学肥料の輸入依存が高い','農業インフラが未整備（山岳地形）','農業の多様化が課題','農業技術の普及が遅れている'],nb:{ap:'カカオ農園・太陽光MB',eff:'肥料節約15〜22%',note:'カカオの有機認証農業にNBが有効。島嶼・山岳地形でも導入可能な低コスト太陽光MB装置が鍵。'},actions:['カカオ農園での有機認証取得×NB水','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','コーヒーの有機認証取得','国際農業支援機関との連携']},
+  {id:'uganda',flag:'🇺🇬',name:'ウガンダ',risk:'high',lat:1,lon:32,fertDep:82,popGrowth:18,importRisk:84,scarcityNow:78,crop:'コーヒー・綿花・茶・サトウキビ',issues:['化学肥料のほぼ全量を輸入依存','人口増加と農地不足','農業インフラが未整備','土壌劣化が進行'],nb:{ap:'コーヒー農園・太陽光MB',eff:'肥料節約15〜22%',note:'コーヒーの有機認証農業にNBが有効。東アフリカの農業近代化モデルとして展開可能。'},actions:['コーヒー農園での有機認証取得×NB','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','東アフリカ農業協力への参加']},
+  {id:'rwanda',flag:'🇷🇼',name:'ルワンダ',risk:'high',lat:-2,lon:30,fertDep:82,popGrowth:15,importRisk:84,scarcityNow:78,crop:'コーヒー・茶・バナナ・豆類',issues:['化学肥料のほぼ全量を輸入依存','農地が非常に少ない（世界最高水準の人口密度）','土壌侵食が深刻','農業の近代化が急務'],nb:{ap:'コーヒー農園・精密農業',eff:'肥料節約15〜22%',note:'ルワンダコーヒーの高品質化にNBが有効。農地効率の最大化が国家的課題。'},actions:['コーヒー農園での有機認証取得×NB','精密農業×ナノバブルで限られた農地を最大活用','農業廃棄物の堆肥化','テラスファーミング（棚田農業）×NB水','東アフリカ農業協力への参加']},
+  {id:'malawi',flag:'🇲🇼',name:'マラウイ',risk:'critical',lat:-13,lon:34,fertDep:88,popGrowth:20,importRisk:90,scarcityNow:85,crop:'タバコ・砂糖・茶・トウモロコシ',issues:['化学肥料の80%以上を輸入依存','外貨不足で肥料購入が困難','農業インフラが著しく未整備','人口増加と食料不足の悪循環'],nb:{ap:'太陽光MB・小農規模',eff:'肥料節約15〜20%',note:'タバコ依存から食料作物への転換が急務。太陽光MB装置で肥料コストを削減。'},actions:['タバコから食料作物への転換支援','太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化組織化','マメ科輪作で土壌窒素固定','国際農業支援との連携']},
+  {id:'burkina_faso',flag:'🇧🇫',name:'ブルキナファソ',risk:'critical',lat:12,lon:-2,fertDep:90,popGrowth:20,importRisk:93,scarcityNow:90,crop:'モロコシ・キビ・綿花・落花生',issues:['化学肥料のほぼ全量を輸入依存','サヘル地帯の干ばつ・砂漠化が深刻','紛争・政情不安で農業投資が困難','農業インフラが著しく未整備'],nb:{ap:'太陽光MB・乾燥地農業',eff:'肥料節約15〜20%',note:'サヘル地帯の乾燥農業にNBが有効。電力インフラ問題を太陽光で補完。'},actions:['太陽光マイクロバブル装置の農村展開','グレート・グリーン・ウォール参加（砂漠化防止）','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援との緊急連携']},
+  {id:'mali',flag:'🇲🇱',name:'マリ',risk:'critical',lat:17,lon:-4,fertDep:90,popGrowth:20,importRisk:93,scarcityNow:90,crop:'モロコシ・キビ・綿花・落花生',issues:['化学肥料のほぼ全量を輸入依存','サヘル地帯の干ばつ・砂漠化が深刻','紛争・政情不安で農業投資が困難','農業インフラが著しく未整備'],nb:{ap:'太陽光MB・乾燥地農業',eff:'肥料節約15〜20%',note:'ニジェール川流域の農業にNBが有効。太陽光MB装置で少ない資金でも肥料コストを削減。'},actions:['太陽光マイクロバブル装置の農村展開','グレート・グリーン・ウォール参加','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援との緊急連携']},
+  {id:'niger',flag:'🇳🇪',name:'ニジェール',risk:'critical',lat:17,lon:8,fertDep:92,popGrowth:22,importRisk:95,scarcityNow:92,crop:'モロコシ・キビ・カウピー・落花生',issues:['化学肥料のほぼ全量を輸入依存','世界最高水準の人口増加率で食料需要急増','サヘル地帯の干ばつ・砂漠化が最も深刻','農業インフラが最貧国レベル'],nb:{ap:'太陽光MB・緊急農業',eff:'肥料節約15〜20%',note:'世界最貧国レベルの農業支援が急務。太陽光MB装置でインフラ問題を克服。'},actions:['太陽光マイクロバブル装置の緊急展開','グレート・グリーン・ウォール参加','農業廃棄物の堆肥化','耐乾燥品種×有機農業','国際農業支援との緊急連携']},
+  {id:'chad',flag:'🇹🇩',name:'チャド',risk:'critical',lat:15,lon:19,fertDep:92,popGrowth:20,importRisk:95,scarcityNow:92,crop:'モロコシ・キビ・綿花・落花生',issues:['化学肥料のほぼ全量を輸入依存','サヘル地帯・チャド湖の縮小で農業危機','紛争・政情不安で農業投資が困難','農業インフラが最低水準'],nb:{ap:'太陽光MB・緊急農業',eff:'肥料節約15〜20%',note:'チャド湖消失の危機と農業支援が最優先課題。太陽光MB装置で少量の水・肥料で最大効果。'},actions:['太陽光マイクロバブル装置の緊急展開','チャド湖回復プロジェクトとの連携','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援との緊急連携']},
+  {id:'somalia',flag:'🇸🇴',name:'ソマリア',risk:'critical',lat:6,lon:46,fertDep:95,popGrowth:12,importRisk:97,scarcityNow:95,crop:'ソルガム・トウモロコシ・豆類・バナナ',issues:['慢性的な紛争で農業インフラが崩壊','化学肥料の調達が不可能に近い','干ばつ・洪水が繰り返し発生','農業人材が難民化で流出'],nb:{ap:'太陽光MB・緊急人道支援',eff:'肥料節約15〜20%',note:'人道的観点から最優先の農業支援が必要。太陽光MB装置でインフラ問題を克服。'},actions:['人道支援と連携した緊急農業技術導入','太陽光マイクロバブル装置のNGO展開','農業廃棄物の堆肥化','耐干ばつ品種×有機農業','UNHCR・WFPとの農業支援連携']},
+  {id:'south_sudan',flag:'🇸🇸',name:'南スーダン',risk:'critical',lat:7,lon:30,fertDep:95,popGrowth:15,importRisk:97,scarcityNow:95,crop:'ソルガム・キビ・落花生・ゴマ',issues:['世界最若国で農業インフラがほぼ皆無','化学肥料の調達が不可能に近い','慢性的な紛争と飢饉が続く','農業技術者がほぼいない'],nb:{ap:'太陽光MB・緊急人道支援',eff:'肥料節約15〜20%',note:'人道的観点から最優先の農業支援。太陽光MB装置でインフラ問題を克服。'},actions:['人道支援と連携した緊急農業技術導入','太陽光マイクロバブル装置のNGO展開','農業廃棄物の堆肥化','耐干ばつ品種×有機農業','国際農業支援との緊急連携']},
+  {id:'eritrea',flag:'🇪🇷',name:'エリトレア',risk:'critical',lat:15,lon:39,fertDep:90,popGrowth:10,importRisk:93,scarcityNow:90,crop:'ソルガム・小麦・大麦・綿花',issues:['化学肥料のほぼ全量を輸入依存','国際社会から孤立し農業支援が受けにくい','干ばつ・砂漠化が進行','農業インフラが著しく未整備'],nb:{ap:'太陽光MB・乾燥地農業',eff:'肥料節約15〜20%',note:'孤立した環境での自立型農業にNBが有効。太陽光MB装置で肥料コストを削減。'},actions:['太陽光マイクロバブル装置の農村展開','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','耐干ばつ品種×有機農業','国際農業支援機関との連携']},
+  {id:'north_korea',flag:'🇰🇵',name:'北朝鮮',risk:'critical',lat:40,lon:127,fertDep:90,popGrowth:0,importRisk:95,scarcityNow:92,crop:'米・トウモロコシ・ジャガイモ・大豆',issues:['制裁で化学肥料の輸入が極めて困難','農業生産性が世界最低水準のひとつ','食料危機が慢性化','農業インフラが老朽化'],nb:{ap:'太陽光MB・自立型農業',eff:'肥料節約15〜20%',note:'国際制裁下での自立型農業強化にNBが有効。外部支援なしでも導入できる低コスト装置が鍵。'},actions:['太陽光マイクロバブル装置の農場展開','農業廃棄物の堆肥化（国家主導）','マメ科輪作で土壌窒素固定','バイオ肥料の国内製造','段階的な国際農業支援の受け入れ']},
+  {id:'myanmar_laos',flag:'🇱🇦',name:'ラオス',risk:'high',lat:18,lon:103,fertDep:78,popGrowth:10,importRisk:80,scarcityNow:72,crop:'米・コーヒー・木材・スズ',issues:['化学肥料の輸入依存が高い','農業インフラが未整備','農村の貧困が深刻','急速な農地転換（農林バランスの悪化）'],nb:{ap:'稲作・コーヒー農園',eff:'肥料節約18〜25%',note:'メコン川流域稲作にNBが有効。コーヒーの有機認証取得で輸出付加価値向上。'},actions:['メコン川稲作へのNB灌漑導入','コーヒー農園での有機認証取得','農業廃棄物の堆肥化','マメ科輪作で土壌窒素固定','国際農業支援機関との連携']},
+  {id:'mongolia',flag:'🇲🇳',name:'モンゴル',risk:'medium',lat:46,lon:103,fertDep:82,popGrowth:5,importRisk:85,scarcityNow:60,crop:'小麦・大麦・野菜・牧草',issues:['化学肥料のほぼ全量を輸入依存（中国・ロシア経由）','極端な気候（寒暖差）で農業期間が短い','農業可能地が国土の1%未満','遊牧民の定住化で農業インフラ整備が急務'],nb:{ap:'短期集中灌漑・温室農業',eff:'肥料節約18〜25%・収量向上',note:'短い農業期間を最大活用するためのNB集中灌漑が有効。温室農業との組み合わせで通年生産を実現。'},actions:['温室農業でのNB養液栽培導入','精密施肥×ナノバブルで短期間に最大収量','農業廃棄物の堆肥化','太陽光発電型NB装置（電力インフラ補完）','中国・ロシア以外への調達先多様化']},
+  {id:'cuba2',flag:'🇺🇾',name:'ウルグアイ',risk:'low',lat:-33,lon:-56,fertDep:52,popGrowth:3,importRisk:55,scarcityNow:42,crop:'大豆・牛肉・米・小麦',issues:['化学肥料の輸入依存が中程度','大豆単作による土壌劣化が進行','農業廃棄物のリサイクルが不十分','農業の担い手不足'],nb:{ap:'大規模農業・灌漑',eff:'肥料節約18〜25%・収量向上',note:'ブラジル・アルゼンチンとともに南米農業の中核。センターピボット灌漑へのNB統合で肥料コストを削減。'},actions:['大豆根粒菌接種の全国標準化','カバークロップ輪作で土壌有機物回復','灌漑にナノバブル発生装置を統合','有機農業輸出ブランドの確立','農業廃棄物のバイオガス化']},
+  {id:'singapore',flag:'🇸🇬',name:'シンガポール',risk:'low',lat:1,lon:104,fertDep:100,popGrowth:2,importRisk:100,scarcityNow:30,crop:'野菜・果物（都市農業）',issues:['食料の90%以上を輸入依存（農地がほぼない）','垂直農業・都市農業のみが現実的選択肢','食料安全保障のための多様な輸入先確保が課題','食料価格の国際市場変動への脆弱性'],nb:{ap:'垂直農業・水耕栽培',eff:'肥料節約35〜45%・生産効率最大化',note:'都市型垂直農業でNBの効果が世界最大級。90年食料計画（30×30目標：国内食料30%自給）の中核技術として導入が進む。'},actions:['垂直農業施設での全面的NB養液栽培導入','食料90年計画（30×30）へのNB技術組み込み','下水再生水×ナノバブルで農業用水確保','都市農業スタートアップへの投資拡大','アジア農業技術ハブとしての知見輸出']}
+];
+
+// Filter valid
+const C = COUNTRIES.filter(c=>c.flag && c.name);
+
+const MAP_RISK = {
+  'BRA':'critical','ETH':'critical','UKR':'critical','IDN':'critical','NGA':'critical',
+  'COD':'critical','SDN':'critical','SOM':'critical','YEM':'critical','AFG':'critical',
+  'MOZ':'critical','MWI':'critical','MDG':'critical','ZWE':'critical','HTI':'critical',
+  'TCD':'critical','NER':'critical','MLI':'critical','BFA':'critical','SSD':'critical',
+  'SDS':'critical','ERI':'critical','PRK':'critical','LKA':'critical','BGD':'critical',
+  'JPN':'high','IND':'high','SAU':'high','PHL':'high','PAK':'high',
+  'KEN':'high','TZA':'high','UGA':'high','GHA':'high','AGO':'high','CMR':'high',
+  'KHM':'high','MMR':'high','NPL':'high','EGY':'high','IRQ':'high','SYR':'high',
+  'KOR':'high','SEN':'high','BEN':'high','TGO':'high','ZMB':'high','VEN':'high',
+  'CHN':'medium','VNM':'medium','ZAF':'medium','THA':'medium','MYS':'medium',
+  'MEX':'medium','COL':'medium','ECU':'medium','DZA':'medium','TUN':'medium',
+  'TUR':'medium','IRN':'medium','KAZ':'medium','CIV':'medium','DOM':'medium',
+  'CUB':'medium','PRY':'medium','URY':'medium','JOR':'medium','MNG':'medium',
+  'RUS':'low','USA':'low','CAN':'low','AUS':'low','MAR':'low','FRA':'low',
+  'DEU':'low','GBR':'low','ESP':'low','ITA':'low','NLD':'low','POL':'low',
+  'ARG':'low','CHL':'low','NZL':'low','NOR':'low','SWE':'low','FIN':'low',
+  'DNK':'low','BEL':'low','AUT':'low','CHE':'low','IRL':'low','PRT':'low',
+  'BLR':'low','QAT':'low','ARE':'low','KWT':'low','OMN':'low','ISR':'low',
+};
+const APP_ISO = {
+  japan:'JPN',india:'IND',brazil:'BRA',ethiopia:'ETH',ukraine:'UKR',
+  indonesia:'IDN',vietnam:'VNM',nigeria:'NGA',russia:'RUS',usa:'USA',
+  china:'CHN',australia:'AUS',
+};
+const ISO_APP = Object.fromEntries(Object.entries(APP_ISO).map(([k,v])=>[v,k]));
+
+const RISK_COL = {critical:'#ff3b3b',high:'#ff9500',medium:'#4fa8ff',low:'#00cc77',nodata:'#c5dbe8'};
+
+// Price data
+const YEARS = [2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028,2029];
+const PRICE = {
+  urea:{hist:[280,220,230,270,240,200,420,900,360,320],opt:[300,270,250,230,215],base:[330,315,300,290,285],pess:[370,430,510,470,450]},
+  dap: {hist:[360,290,350,400,310,290,570,1050,580,520],opt:[480,440,400,370,350],base:[510,495,475,460,450],pess:[560,640,720,690,650]},
+  mop: {hist:[290,220,230,270,240,210,290,1200,580,360],opt:[320,295,265,245,230],base:[350,340,330,325,315],pess:[400,510,630,580,560]},
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let currentCountry = C.find(c=>c.id==='japan');
+let priceChart = null;
+
+// ============================================================
+// INIT
+// ============================================================
+let _riskFilter='all';
+let _nameFilter='';
+function filterCountryList(q){
+  _nameFilter=q.toLowerCase();
+  renderCountryList();
+}
+function filterByRisk(risk,btn){
+  _riskFilter=risk;
+  document.querySelectorAll('.risk-filter-btn').forEach(b=>{
+    b.style.opacity=b===btn?'1':'0.5';
+  });
+  renderCountryList();
+}
+function renderCountryList(){
+  const el=document.getElementById('country-list');
+  const filtered=C.filter(c=>{
+    const rk=c.risk||'nodata';
+    const matchRisk=_riskFilter==='all'||rk===_riskFilter;
+    const matchName=!_nameFilter||c.name.toLowerCase().includes(_nameFilter)||c.flag.includes(_nameFilter);
+    return matchRisk&&matchName;
+  });
+  const pillClass={critical:'rp-c',high:'rp-h',medium:'rp-m',low:'rp-l'};
+  const pillText={critical:'緊急',high:'高',medium:'中',low:'低'};
+  el.innerHTML=filtered.map(c=>{
+    const rk=c.risk||'nodata';
+    return `<button class="country-btn" id="cb-${c.id}" onclick="selectCountry('${c.id}')">
+      <span class="country-flag">${c.flag}</span>
+      <span class="country-name">${c.name}</span>
+      <span class="risk-pill ${pillClass[rk]||''}">${pillText[rk]||'−'}</span>
+    </button>`;
+  }).join('');
+  const active=C.find(c=>c.id===(currentCountry&&currentCountry.id));
+  if(active){const btn=document.getElementById('cb-'+active.id);if(btn)btn.classList.add('active');}
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  buildCountryList();
+  loadGeoJSON();
+  selectCountry('japan');
+});
+
+// ============================================================
+// COUNTRY LIST
+// ============================================================
+function buildCountryList(){
+  renderCountryList();
+}
+
+// ============================================================
+// SELECT COUNTRY
+// ============================================================
+function selectCountry(id){
+  currentCountry = C.find(c=>c.id===id);
+  if(!currentCountry) return;
+  document.querySelectorAll('.country-btn').forEach(b=>b.classList.remove('active'));
+  const btn = document.getElementById('cb-'+id);
+  if(btn){btn.classList.add('active');btn.scrollIntoView({block:'nearest'});}
+  document.getElementById('hdr-country').textContent = currentCountry.flag+' '+currentCountry.name;
+  document.getElementById('country-name-tag').textContent = currentCountry.name;
+  // highlight map
+  document.querySelectorAll('.mgeo').forEach(el=>{
+    const appId=el.dataset.app;
+    el.setAttribute('stroke',appId===id?'#fff':'#0b1120');
+    el.setAttribute('stroke-width',appId===id?'1.5':'0.4');
+    el.style.filter=appId===id?'brightness(1.5)':'';
+  });
+  onSlider();
+  renderNBContent();
+  renderActContent();
+}
+
+// ============================================================
+// SLIDERS
+// ============================================================
+function onSlider(){
+  const price=+document.getElementById('sl-price').value;
+  const pop=+document.getElementById('sl-pop').value;
+  const org=+document.getElementById('sl-org').value;
+  const nb=+document.getElementById('sl-nb').value;
+  const pol=+document.getElementById('sl-pol').value;
+  document.getElementById('sv-price').textContent='+'+ price+'%';
+  document.getElementById('sv-pop').textContent='+'+ pop+'%';
+  document.getElementById('sv-org').textContent= org+'%';
+  document.getElementById('sv-nb').textContent= nb+'%';
+  document.getElementById('sv-pol').textContent=['低','中','高'][pol-1];
+  updateKPIs(price,pop,org,nb,pol);
+  updateRiskGauges(price,pop,org,nb,pol);
+  updateSimResults(price,pop,org,nb,pol);
+  updateHorizon(price,pop,org,nb,pol);
+  updateCountryIssues();
+}
+
+function updateKPIs(price,pop,org,nb,pol){
+  const c=currentCountry;
+  // Scarcity score (0-100)
+  const baseScore = c.scarcityNow||60;
+  const priceImpact = price*0.15;
+  const popImpact = pop*0.3;
+  const orgRelief = org*0.3;
+  const nbRelief = nb*0.2;
+  const polBonus = (pol-1)*5;
+  const score = Math.min(99,Math.max(5, baseScore + priceImpact*0.1 + popImpact*0.1 - orgRelief*0.1 - nbRelief*0.1 - polBonus));
+  document.getElementById('kpi-risk').textContent = Math.round(score)+'/100';
+  document.getElementById('kpi-cost').textContent = '+'+ price+'%';
+  document.getElementById('kpi-food').textContent = '+'+pop+'%';
+  const nbSave = Math.round(nb*0.3 + org*0.15);
+  document.getElementById('kpi-nb').textContent = '-'+Math.min(60,nbSave)+'%';
+}
+
+function updateRiskGauges(price,pop,org,nb,pol){
+  const c=currentCountry;
+  const polB=(pol-1)*8;
+  const gauges=[
+    {label:'輸入依存リスク',val:Math.min(100,c.fertDep-(org*0.3)-(polB)),color:'#ff3b3b'},
+    {label:'価格高騰影響',val:Math.min(100,Math.round(price/3)),color:'#ff9500'},
+    {label:'人口増需要圧',val:Math.min(100,pop*2.5),color:'#ff6b35'},
+    {label:'有機転換効果',val:org,color:'#00cc77',invert:true},
+    {label:'ナノバブル効果',val:Math.min(100,nb*0.8),color:'#00d4aa',invert:true},
+    {label:'入手困難度総合',val:Math.min(99,Math.max(5,c.scarcityNow+price*0.05+pop*0.3-org*0.2-nb*0.15-polB)),color:'#ffd700'},
+  ];
+  document.getElementById('risk-gauges').innerHTML=gauges.map(g=>
+    `<div class="gauge-wrap">
+      <div class="gauge-label">${g.label}</div>
+      <div class="gauge-track"><div class="gauge-fill" style="width:${Math.round(Math.max(0,g.val))}%;background:${g.color}"></div></div>
+      <div class="gauge-val" style="color:${g.color}">${Math.round(Math.max(0,g.val))}${g.invert?'%削':'%'}</div>
+    </div>`
+  ).join('');
+}
+
+function updateSimResults(price,pop,org,nb,pol){
+  const c=currentCountry;
+  const polB=(pol-1)*8;
+  const risk=Math.min(99,Math.max(5,c.scarcityNow+price*0.05+pop*0.2-org*0.2-nb*0.15-polB));
+  const save=Math.min(60,Math.round(nb*0.28+org*0.18+polB*0.3));
+  const cost=Math.round(c.fertDep*(1+price/100)*(1-org/200)*(1-nb/300));
+
+  const riskClass=risk>70?'bad':risk>45?'warn':'good';
+  const saveClass=save>40?'good':save>20?'warn':'bad';
+  const costClass=cost>80?'bad':cost>50?'warn':'good';
+
+  document.getElementById('sim-results').innerHTML=`
+    <div class="result-box ${riskClass}"><div class="rv">${Math.round(risk)}/100</div><div class="rl">入手困難スコア</div></div>
+    <div class="result-box ${saveClass}"><div class="rv">-${save}%</div><div class="rl">肥料削減可能量</div></div>
+    <div class="result-box ${costClass}"><div class="rv">${cost}%</div><div class="rl">コスト依存度</div></div>
+  `;
+
+  // Scenario bar
+  const optScore=Math.max(5,risk-20);
+  const pessScore=Math.min(99,risk+15);
+  document.getElementById('scenario-bar').innerHTML=`
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:11px">
+      <span style="color:var(--ok)">楽観</span>
+      <div style="flex:1;height:10px;background:var(--s3);border-radius:5px;overflow:hidden;display:flex">
+        <div style="width:${optScore}%;background:var(--ok);height:100%"></div>
+      </div>
+      <span style="color:var(--ok);width:32px;text-align:right">${Math.round(optScore)}</span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:11px">
+      <span style="color:var(--acc3)">ベース</span>
+      <div style="flex:1;height:10px;background:var(--s3);border-radius:5px;overflow:hidden">
+        <div style="width:${risk}%;background:var(--acc3);height:100%"></div>
+      </div>
+      <span style="color:var(--acc3);width:32px;text-align:right">${Math.round(risk)}</span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;font-size:11px">
+      <span style="color:var(--danger)">悲観</span>
+      <div style="flex:1;height:10px;background:var(--s3);border-radius:5px;overflow:hidden">
+        <div style="width:${pessScore}%;background:var(--danger);height:100%"></div>
+      </div>
+      <span style="color:var(--danger);width:32px;text-align:right">${Math.round(pessScore)}</span>
+    </div>`;
+}
+
+function updateHorizon(price,pop,org,nb,pol){
+  const c=currentCountry;
+  const polB=(pol-1)*5;
+  const base=c.scarcityNow;
+  const years=[2024,2025,2026,2027,2028,2029,2030];
+  const segs=years.map((y,i)=>{
+    const t=i/6;
+    const b=Math.min(99,base+price*0.02*t+pop*0.1*t-org*0.08*t-nb*0.06*t-polB*t);
+    const opt=Math.max(5,b-12);
+    const pess=Math.min(99,b+12);
+    return {y,b:Math.round(b),opt:Math.round(opt),pess:Math.round(pess)};
+  });
+  const toCol=(v)=>v>75?'#ff3b3b':v>55?'#ff9500':v>35?'#ffd700':'#00cc77';
+  document.getElementById('horizon-chart').innerHTML=segs.map(s=>`
+    <div class="horizon-row">
+      <div class="horizon-label">${s.y}</div>
+      <div class="horizon-segs">
+        <div class="horizon-seg" style="background:${toCol(s.opt)};opacity:.7" title="楽観:${s.opt}"></div>
+        <div class="horizon-seg" style="background:${toCol(s.b)}" title="ベース:${s.b}"></div>
+        <div class="horizon-seg" style="background:${toCol(s.pess)};opacity:.85" title="悲観:${s.pess}"></div>
+      </div>
+    </div>`).join('');
+}
+
+function updateCountryIssues(){
+  const c=currentCountry;
+  document.getElementById('country-issues').innerHTML=c.issues.map((issue,i)=>
+    `<div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start">
+      <div style="width:18px;height:18px;border-radius:50%;background:rgba(255,59,59,.15);border:1px solid rgba(255,59,59,.3);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--danger);flex-shrink:0;margin-top:1px">${i+1}</div>
+      <div>${issue}</div>
+    </div>`
+  ).join('');
+}
+
+// ============================================================
+// NANOBUBBLE TAB
+// ============================================================
+function renderNBContent(){
+  const c=currentCountry;
+  if(!c.nb) return;
+  const nb=c.nb;
+  document.getElementById('nb-content').innerHTML=`
+    <div class="nb-box">
+      <div class="nb-title">💧 適用シナリオ：${nb.ap}</div>
+      <div class="nb-text">${nb.note}</div>
+    </div>
+    <div class="nb-box" style="margin-bottom:12px">
+      <div class="nb-title">📈 期待効果（${c.name}）</div>
+      <div class="nb-text">${nb.eff}</div>
+    </div>
+    <div class="card-title" style="font-size:11px;color:var(--t2);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px;">ナノバブル水の作用機序</div>
+    <div class="action-item"><div class="action-no">①</div><div class="action-text"><strong>溶存酸素（DO）増加：</strong>通常の2〜3倍に増加。好気性微生物が活性化し養分循環が促進。</div></div>
+    <div class="action-item"><div class="action-no">②</div><div class="action-text"><strong>肥料吸収効率向上：</strong>ナノバブルが肥料イオンを包んで根まで運搬。吸収率が20〜40%改善。</div></div>
+    <div class="action-item"><div class="action-no">③</div><div class="action-text"><strong>根圏微生物活性化：</strong>内圧効果でラジカル発生。pH調整・病原菌抑制・有益菌増殖。</div></div>
+    <div class="action-item"><div class="action-no">④</div><div class="action-text"><strong>有機肥料との相乗：</strong>ナノバブル水で有機堆肥を溶かすと微生物密度が2〜5倍増加。即効性と持続性を両立。</div></div>
+    <div class="action-item"><div class="action-no">⑤</div><div class="action-text"><strong>水使用量削減：</strong>保水性・毛細管浸透性が向上。灌漑水量を20〜30%削減可能。</div></div>
+    <div style="margin-top:14px">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:6px;">マイクロバブル vs ナノバブル</div>
+      <div style="display:flex;gap:6px">
+        <div style="flex:1;background:var(--s1);border-radius:8px;border:1px solid var(--bd);padding:10px;font-size:11px">
+          <div style="color:var(--acc3);font-weight:600;margin-bottom:4px">マイクロバブル</div>
+          <div style="color:var(--t3)">1〜100μm。浮力で上昇。農地散布・灌漑に適用しやすい。低コスト装置で生成可能。</div>
+        </div>
+        <div style="flex:1;background:var(--s1);border-radius:8px;border:1px solid var(--bd);padding:10px;font-size:11px">
+          <div style="color:var(--acc);font-weight:600;margin-bottom:4px">ナノバブル</div>
+          <div style="color:var(--t3)">50〜200nm。水中に長期滞在。施設園芸・水耕栽培で最大効果。溶存ガス量が飛躍的増加。</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// ACTIONS TAB
+// ============================================================
+function renderActContent(){
+  const c=currentCountry;
+  document.getElementById('act-content').innerHTML=
+    c.actions.map((a,i)=>`
+      <div class="action-item">
+        <div class="action-no">${i+1}</div>
+        <div class="action-text">${a}</div>
+      </div>`).join('');
+}
+
+// ============================================================
+// PRICE CHART
+// ============================================================
+function updateChart(){
+  const key=document.getElementById('chart-item').value;
+  const d=PRICE[key];
+  const hist=[...d.hist,...Array(5).fill(null)];
+  const optArr=[...Array(10).fill(null),d.hist[9],...d.opt];
+  const baseArr=[...Array(10).fill(null),d.hist[9],...d.base];
+  const pessArr=[...Array(10).fill(null),d.hist[9],...d.pess];
+  if(priceChart) priceChart.destroy();
+  const ctx=document.getElementById('price-chart').getContext('2d');
+  priceChart=new Chart(ctx,{
+    type:'line',
+    data:{labels:YEARS,datasets:[
+      {label:'実績',data:hist,borderColor:'#00d4aa',backgroundColor:'transparent',borderWidth:2.5,pointRadius:3,pointBackgroundColor:'#00d4aa',tension:.35,spanGaps:false},
+      {label:'楽観',data:optArr,borderColor:'#00cc77',backgroundColor:'transparent',borderWidth:1.5,borderDash:[4,3],pointRadius:2,tension:.3,spanGaps:true},
+      {label:'ベース',data:baseArr,borderColor:'#4fa8ff',backgroundColor:'transparent',borderWidth:1.5,borderDash:[6,4],pointRadius:2,tension:.3,spanGaps:true},
+      {label:'悲観',data:pessArr,borderColor:'#ff3b3b',backgroundColor:'transparent',borderWidth:1.5,borderDash:[2,3],pointRadius:2,tension:.3,spanGaps:true},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#ffffff',borderColor:'rgba(0,151,167,.4)',borderWidth:1,titleColor:'#0d2b3e',bodyColor:'#2c5f7a',callbacks:{label:c=>'$'+(c.parsed.y??'-')+'/t'}}},
+      scales:{
+        x:{grid:{color:'rgba(0,80,120,.08)'},ticks:{color:'#7bafc4',font:{size:10}},border:{color:'rgba(0,80,120,.12)'}},
+        y:{grid:{color:'rgba(0,80,120,.08)'},ticks:{color:'#7bafc4',font:{size:10},callback:v=>'$'+v},border:{color:'rgba(0,80,120,.12)'}},
+      }
+    }
+  });
+  // Forecast zone
+  setTimeout(()=>{
+    if(!priceChart) return;
+    const orig=priceChart.draw.bind(priceChart);
+    priceChart.draw=function(){
+      orig();
+      const{ctx:c,chartArea,scales}=priceChart;
+      if(!chartArea) return;
+      const x=scales.x.getPixelForValue(9.5);
+      c.save();
+      c.fillStyle='rgba(21,101,192,.05)';
+      c.fillRect(x,chartArea.top,chartArea.right-x,chartArea.bottom-chartArea.top);
+      c.strokeStyle='rgba(21,101,192,.2)';
+      c.setLineDash([4,3]);
+      c.lineWidth=1;
+      c.beginPath();c.moveTo(x,chartArea.top);c.lineTo(x,chartArea.bottom);c.stroke();
+      c.restore();
+    };
+    priceChart.draw();
+  },80);
+}
+
+// ============================================================
+// TABS
+// ============================================================
+function switchTab(id,btn){
+  ['sim','nb','act'].forEach(t=>document.getElementById('tab-'+t).style.display='none');
+  document.getElementById('tab-'+id).style.display='';
+  document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ============================================================
+// WORLD MAP (GeoJSON)
+// ============================================================
+var WORLD_GEO=null;
+function loadGeoJSON(){
+  // Inline minimal GeoJSON URL — use public CDN
+  fetch('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson')
+    .then(r=>r.json())
+    .then(d=>{WORLD_GEO=d;renderMap();})
+    .catch(()=>renderMapFallback());
+}
+const CENTER_LON=135;
+function mapProj(lon,lat){
+  const W=1000,H=490;
+  let l=lon-CENTER_LON;
+  if(l<-180)l+=360;
+  if(l>180)l-=360;
+  const x=(l+180)/360*W;
+  const y=(84-Math.max(-58,Math.min(84,lat)))/(84+58)*H;
+  return [x,y];
+}
+function geoPath(geom){
+  const polys=geom.type==='Polygon'?[geom.coordinates]:geom.coordinates;
+  let d='';
+  for(const rings of polys){
+    for(const ring of rings){
+      // Split ring segments that cross the antimeridian (relative to center)
+      let prev=null;
+      for(let i=0;i<ring.length;i++){
+        let lon=ring[i][0],lat=ring[i][1];
+        let l=lon-CENTER_LON;
+        if(l<-180)l+=360;if(l>180)l-=360;
+        if(prev!==null){
+          const diff=l-prev;
+          if(Math.abs(diff)>180){d+='M';prev=null;}
+        }
+        const[x,y]=mapProj(lon,lat);
+        d+=(prev===null?'M':'L')+x.toFixed(1)+','+y.toFixed(1);
+        prev=l;
+      }
+      d+='Z';
+    }
+  }
+  return d;
+}
+function renderMap(){
+  const g=document.getElementById('map-g');
+  if(!g||!WORLD_GEO) return;
+  // Graticule
+  let grat='';
+  for(let lon=CENTER_LON-180;lon<=CENTER_LON+180;lon+=30){const[ax,ay]=mapProj(lon,84);const[bx,by]=mapProj(lon,-58);grat+=`<line x1="${ax.toFixed(0)}" y1="${ay.toFixed(0)}" x2="${bx.toFixed(0)}" y2="${by.toFixed(0)}" stroke="rgba(0,80,120,0.08)" stroke-width=".5"/>`;}
+  for(let lat=-45;lat<=75;lat+=30){const[ax,ay]=mapProj(CENTER_LON-180,lat);const[bx,by]=mapProj(CENTER_LON+180,lat);grat+=`<line x1="${ax.toFixed(0)}" y1="${ay.toFixed(0)}" x2="${bx.toFixed(0)}" y2="${by.toFixed(0)}" stroke="rgba(0,80,120,0.08)" stroke-width=".5"/>`;}
+  let paths='';
+  for(const f of WORLD_GEO.features){
+    const iso=f.id;
+    const risk=MAP_RISK[iso]||'nodata';
+    const col=RISK_COL[risk];
+    const appId=ISO_APP[iso]||'';
+    const d=geoPath(f.geometry);
+    const name=f.properties&&f.properties.name?f.properties.name:iso;
+    paths+=`<path class="mgeo" d="${d}" fill="${col}" stroke="#0b1120" stroke-width=".4" data-iso="${iso}" data-app="${appId}" data-name="${name}" data-risk="${risk}" style="cursor:${appId?'pointer':'default'};transition:fill .15s"/>`;
+  }
+  g.innerHTML=grat+paths;
+  // interactions
+  const tip=document.getElementById('map-tip');
+  g.querySelectorAll('.mgeo').forEach(el=>{
+    el.addEventListener('mouseenter',e=>{
+      el.style.opacity='.7';
+      el.setAttribute('stroke','rgba(255,255,255,.6)');
+      el.setAttribute('stroke-width','1');
+      const c=C.find(x=>x.id===el.dataset.app);
+      const rLabel={critical:'緊急',high:'高',medium:'中',low:'低',nodata:'—'}[el.dataset.risk]||'—';
+      tip.innerHTML=`<div style="font-weight:600;color:#e8f0fe;margin-bottom:2px">${c?c.flag+' ':''} ${el.dataset.name}</div><div style="color:${RISK_COL[el.dataset.risk]}">リスク: ${rLabel}</div>${c?`<div style="color:#8fa3c0;font-size:11px">輸入依存: ${c.fertDep}%</div>`:''}`;
+      tip.style.opacity='1';
+    });
+    el.addEventListener('mousemove',e=>{
+      tip.style.left=(e.clientX+14)+'px';tip.style.top=(e.clientY-10)+'px';
+    });
+    el.addEventListener('mouseleave',()=>{
+      el.style.opacity='1';
+      el.setAttribute('stroke','#e8f4f8');
+      el.setAttribute('stroke-width','.4');
+      tip.style.opacity='0';
+    });
+    el.addEventListener('click',()=>{if(el.dataset.app) selectCountry(el.dataset.app);});
+  });
+  updateChart();
+}
+function renderMapFallback(){
+  // Offline: just show text notice
+  document.getElementById('map-g').innerHTML=`<text x="500" y="245" text-anchor="middle" fill="#4a6080" font-size="14" font-family="sans-serif">オフライン環境：地図を読み込めません。左リストから国を選択してください。</text>`;
+  updateChart();
+}
+</script>
+</body>
+</html>
